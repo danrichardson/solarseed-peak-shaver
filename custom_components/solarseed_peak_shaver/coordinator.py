@@ -28,6 +28,7 @@ from .const import (
     CONF_SEASONAL_MONTHS,
     CONF_SEASONAL_PRESERVATION,
     CONF_SOLAR_FORECAST_ENTITY,
+    CONF_VERBOSE_LOGGING,
     CONF_WEEKDAYS_ONLY,
     DEFAULT_BASE_LOAD,
     DEFAULT_BATTERY_CAPACITY,
@@ -41,6 +42,7 @@ from .const import (
     DEFAULT_SCHEDULE_HOURS,
     DEFAULT_SEASONAL_MONTHS,
     DEFAULT_SEASONAL_PRESERVATION,
+    DEFAULT_VERBOSE_LOGGING,
     DEFAULT_WEEKDAYS_ONLY,
     DOMAIN,
     EVENT_CHARGE_START,
@@ -144,6 +146,10 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
     @property
     def seasonal_preservation(self) -> bool:
         return bool(self._cfg(CONF_SEASONAL_PRESERVATION, DEFAULT_SEASONAL_PRESERVATION))
+
+    @property
+    def verbose_logging(self) -> bool:
+        return bool(self._cfg(CONF_VERBOSE_LOGGING, DEFAULT_VERBOSE_LOGGING))
 
     @property
     def seasonal_months(self) -> list[int]:
@@ -441,6 +447,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         midpeak_start = self.midpeak_start
         peak_start = self.peak_start
         peak_end = self.peak_end
+        log = _LOGGER.info if self.verbose_logging else _LOGGER.debug
 
         # --- Current battery level ---
         soc_state = self.hass.states.get(self.battery_soc_entity)
@@ -469,7 +476,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             hours_to_rates = midpeak_start - current_hour
             drain = hours_to_rates * load_kw
             battery_at_peak = current_soc - drain
-            _LOGGER.debug(
+            log(
                 "Pre-rate: %dh drain of %.2f kWh, battery at mid-peak: %.2f",
                 hours_to_rates,
                 drain,
@@ -481,7 +488,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             hours_to_rates = hours_to_midnight + hours_after_midnight
             drain = hours_to_rates * load_kw
             battery_at_peak = current_soc - drain
-            _LOGGER.debug(
+            log(
                 "Post-peak: %dh overnight drain of %.2f kWh, battery at mid-peak: %.2f",
                 hours_to_rates,
                 drain,
@@ -490,7 +497,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         else:
             battery_at_peak = current_soc
             sim_start = current_hour
-            _LOGGER.debug("In rate window: simulating from hour %d", current_hour)
+            log("In rate window: simulating from hour %d", current_hour)
 
         # --- Simulate through mid-peak + peak period ---
         battery_level = battery_at_peak
@@ -504,7 +511,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
 
             period = "MID" if hour < peak_start else "PEAK"
 
-            _LOGGER.debug(
+            log(
                 "  %02d:00 [%s] | Solar: %.3f | Load: %.3f | Net: %+.3f | Battery: %.2f",
                 hour,
                 period,

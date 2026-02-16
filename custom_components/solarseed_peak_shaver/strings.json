@@ -45,14 +45,16 @@
           "notify_entity": "Notification service",
           "charge_threshold": "Minimum charge to act on",
           "seasonal_preservation": "Enable seasonal preservation",
-          "seasonal_months": "Preservation months (comma-separated)"
+          "seasonal_months": "Preservation months (comma-separated)",
+          "verbose_logging": "Verbose logging"
         },
         "data_description": {
           "notifications_enabled": "Send notifications when charging decisions are made",
           "notify_entity": "Notification target, e.g. notify.mobile_app_yourphone",
           "charge_threshold": "Ignore charge amounts below this level",
           "seasonal_preservation": "Preserve battery at end of peak during low-solar months",
-          "seasonal_months": "Months to preserve battery overnight, e.g. 11,12,1,2,3"
+          "seasonal_months": "Months to preserve battery overnight, e.g. 11,12,1,2,3",
+          "verbose_logging": "Log detailed calculation output at INFO level instead of DEBUG"
         }
       }
     },
@@ -90,7 +92,8 @@
           "notify_entity": "Notification service",
           "charge_threshold": "Minimum charge to act on",
           "seasonal_preservation": "Enable seasonal preservation",
-          "seasonal_months": "Preservation months"
+          "seasonal_months": "Preservation months",
+          "verbose_logging": "Verbose logging"
         }
       }
     }

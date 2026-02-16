@@ -25,6 +25,7 @@ from .const import (
     CONF_SEASONAL_MONTHS,
     CONF_SEASONAL_PRESERVATION,
     CONF_SOLAR_FORECAST_ENTITY,
+    CONF_VERBOSE_LOGGING,
     CONF_WEEKDAYS_ONLY,
     DEFAULT_BASE_LOAD,
     DEFAULT_BATTERY_CAPACITY,
@@ -38,6 +39,7 @@ from .const import (
     DEFAULT_SEASONAL_MONTHS,
     DEFAULT_SEASONAL_PRESERVATION,
     DEFAULT_SOLAR_FORECAST_ENTITY,
+    DEFAULT_VERBOSE_LOGGING,
     DEFAULT_WEEKDAYS_ONLY,
     DOMAIN,
 )
@@ -238,6 +240,10 @@ class PeakShaverConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         type=selector.TextSelectorType.TEXT,
                     )
                 ),
+                vol.Required(
+                    CONF_VERBOSE_LOGGING,
+                    default=DEFAULT_VERBOSE_LOGGING,
+                ): selector.BooleanSelector(),
             }
         )
 
@@ -363,6 +369,10 @@ class PeakShaverOptionsFlow(config_entries.OptionsFlow):
                         type=selector.TextSelectorType.TEXT,
                     )
                 ),
+                vol.Required(
+                    CONF_VERBOSE_LOGGING,
+                    default=current.get(CONF_VERBOSE_LOGGING, DEFAULT_VERBOSE_LOGGING),
+                ): selector.BooleanSelector(),
             }
         )
 

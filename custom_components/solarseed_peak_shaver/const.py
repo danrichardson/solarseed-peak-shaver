@@ -2,7 +2,7 @@
 
 DOMAIN = "solarseed_peak_shaver"
 NAME = "Solarseed Peak Shaver"
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 
 # --- Config keys ---
 CONF_BATTERY_CAPACITY = "battery_capacity"
@@ -20,6 +20,7 @@ CONF_NOTIFY_ENTITY = "notify_entity"
 CONF_CHARGE_THRESHOLD = "charge_threshold"
 CONF_SEASONAL_PRESERVATION = "seasonal_preservation"
 CONF_SEASONAL_MONTHS = "seasonal_months"
+CONF_VERBOSE_LOGGING = "verbose_logging"
 
 # --- Defaults ---
 DEFAULT_BATTERY_CAPACITY = 13.0
@@ -36,6 +37,7 @@ DEFAULT_NOTIFY_ENTITY = ""
 DEFAULT_CHARGE_THRESHOLD = 0.5
 DEFAULT_SEASONAL_PRESERVATION = True
 DEFAULT_SEASONAL_MONTHS = [11, 12, 1, 2, 3]
+DEFAULT_VERBOSE_LOGGING = False
 
 # --- Sensor keys ---
 SENSOR_TARGET_SOC = "target_soc_kwh"
