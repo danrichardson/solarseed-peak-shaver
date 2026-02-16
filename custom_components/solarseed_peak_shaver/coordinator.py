@@ -447,7 +447,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         midpeak_start = self.midpeak_start
         peak_start = self.peak_start
         peak_end = self.peak_end
-        log = _LOGGER.info if self.verbose_logging else _LOGGER.debug
+        log = _LOGGER.warning if self.verbose_logging else _LOGGER.debug
 
         # --- Current battery level ---
         soc_state = self.hass.states.get(self.battery_soc_entity)
