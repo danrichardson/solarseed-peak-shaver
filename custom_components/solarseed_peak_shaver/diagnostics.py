@@ -53,5 +53,7 @@ async def async_get_config_entry_diagnostics(
         }
 
         result["charging_active"] = coordinator._charging_active
+        result["last_simulation_trace"] = coordinator.last_simulation_trace
+        result["last_simulation_csv"] = coordinator.last_simulation_csv
 
     return result

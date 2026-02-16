@@ -70,6 +70,8 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         self.entry = entry
         self._unsub_listeners: list[CALLBACK_TYPE] = []
         self._charging_active: bool = False
+        self.last_simulation_trace: list[dict[str, Any]] = []
+        self.last_simulation_csv: str = ""
 
     # -----------------------------------------------------------------
     # Config accessors
@@ -471,16 +473,15 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         # --- Project battery level at mid-peak start ---
         battery_at_peak: float = current_soc
         sim_start: int = midpeak_start
+        pre_sim_note: str = ""
 
         if current_hour < midpeak_start:
             hours_to_rates = midpeak_start - current_hour
             drain = hours_to_rates * load_kw
             battery_at_peak = current_soc - drain
-            log(
-                "Pre-rate: %dh drain of %.2f kWh, battery at mid-peak: %.2f",
-                hours_to_rates,
-                drain,
-                battery_at_peak,
+            pre_sim_note = (
+                f"Pre-rate drain: {hours_to_rates}h x {load_kw:.1f} kW = "
+                f"{drain:.2f} kWh, battery at mid-peak: {battery_at_peak:.2f}"
             )
         elif current_hour >= peak_end:
             hours_to_midnight = 24 - current_hour
@@ -488,20 +489,21 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             hours_to_rates = hours_to_midnight + hours_after_midnight
             drain = hours_to_rates * load_kw
             battery_at_peak = current_soc - drain
-            log(
-                "Post-peak: %dh overnight drain of %.2f kWh, battery at mid-peak: %.2f",
-                hours_to_rates,
-                drain,
-                battery_at_peak,
+            pre_sim_note = (
+                f"Overnight drain: {hours_to_rates}h x {load_kw:.1f} kW = "
+                f"{drain:.2f} kWh, battery at mid-peak: {battery_at_peak:.2f}"
             )
         else:
             battery_at_peak = current_soc
             sim_start = current_hour
-            log("In rate window: simulating from hour %d", current_hour)
+            pre_sim_note = f"In rate window, simulating from hour {current_hour}"
 
         # --- Simulate through mid-peak + peak period ---
         battery_level = battery_at_peak
         min_battery = battery_level
+        trace: list[dict[str, Any]] = []
+        csv_lines = ["hour,period,solar_kwh,load_kwh,net_kwh,battery_kwh"]
+        table_lines: list[str] = []
 
         for hour in range(sim_start, peak_end):
             solar_kwh = hourly_solar.get(hour, 0.0)
@@ -511,29 +513,60 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
 
             period = "MID" if hour < peak_start else "PEAK"
 
-            log(
-                "  %02d:00 [%s] | Solar: %.3f | Load: %.3f | Net: %+.3f | Battery: %.2f",
-                hour,
-                period,
-                solar_kwh,
-                load_kw,
-                net,
-                battery_level,
+            trace.append({
+                "hour": hour,
+                "period": period,
+                "solar_kwh": round(solar_kwh, 3),
+                "load_kwh": round(load_kw, 3),
+                "net_kwh": round(net, 3),
+                "battery_kwh": round(battery_level, 2),
+            })
+            csv_lines.append(
+                f"{hour:02d}:00,{period},{solar_kwh:.3f},{load_kw:.3f},"
+                f"{net:+.3f},{battery_level:.2f}"
             )
+            table_lines.append(
+                f"  {hour:02d}:00 [{period:4s}] | "
+                f"Solar: {solar_kwh:.3f} | Load: {load_kw:.3f} | "
+                f"Net: {net:+.3f} | Battery: {battery_level:.2f}"
+            )
+
+        # Store trace for diagnostics and sensor attributes
+        self.last_simulation_trace = trace
+        self.last_simulation_csv = "\n".join(csv_lines)
 
         # --- Calculate target ---
         if min_battery < min_safe:
             deficit = min_safe - min_battery
             target_soc = current_soc + deficit
-            _LOGGER.info(
-                "Peak shaving deficit: need %.2f kWh additional charge", deficit
+            verdict = (
+                f"CHARGE NEEDED: deficit {deficit:.2f} kWh "
+                f"(projected min {min_battery:.2f} < floor {min_safe:.2f})"
             )
         else:
             target_soc = current_soc
-            _LOGGER.info("Battery survives peak period - no grid charge needed")
+            verdict = (
+                f"NO CHARGE NEEDED: projected min {min_battery:.2f} kWh "
+                f">= floor {min_safe:.2f} kWh"
+            )
 
         target_soc = min(target_soc, capacity)
         charge_needed = max(target_soc - current_soc, 0.0)
+
+        # --- Single consolidated log entry ---
+        summary = (
+            f"Peak Shaver Calculation @ {now.strftime('%H:%M')}\n"
+            f"  Battery: {current_soc:.2f} kWh | "
+            f"Capacity: {capacity:.2f} kWh | "
+            f"Min safe: {min_safe:.2f} kWh | "
+            f"Base load: {load_kw:.1f} kW\n"
+            f"  {pre_sim_note}\n"
+            + "\n".join(table_lines) + "\n"
+            f"  {verdict}\n"
+            f"  Target: {target_soc:.2f} kWh | "
+            f"Charge needed: {charge_needed:.2f} kWh"
+        )
+        log(summary)
 
         result = {
             SENSOR_TARGET_SOC: round(target_soc, 2),

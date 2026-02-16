@@ -1,6 +1,8 @@
 """Sensor platform for Solarseed Peak Shaver."""
 from __future__ import annotations
 
+from typing import Any
+
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -95,3 +97,13 @@ class PeakShaverSensor(CoordinatorEntity[PeakShaverCoordinator], SensorEntity):
         if self.coordinator.data is None:
             return None
         return self.coordinator.data.get(self._sensor_key)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return simulation CSV on the Target SOC sensor."""
+        if self._sensor_key != SENSOR_TARGET_SOC:
+            return None
+        csv = self.coordinator.last_simulation_csv
+        if not csv:
+            return None
+        return {"last_simulation_csv": csv}

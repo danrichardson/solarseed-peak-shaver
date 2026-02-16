@@ -2,7 +2,7 @@
 
 DOMAIN = "solarseed_peak_shaver"
 NAME = "Solarseed Peak Shaver"
-VERSION = "0.2.2"
+VERSION = "0.3.0"
 
 # --- Config keys ---
 CONF_BATTERY_CAPACITY = "battery_capacity"

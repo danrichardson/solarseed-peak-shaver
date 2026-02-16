@@ -54,7 +54,7 @@
           "charge_threshold": "Ignore charge amounts below this level",
           "seasonal_preservation": "Preserve battery at end of peak during low-solar months",
           "seasonal_months": "Months to preserve battery overnight, e.g. 11,12,1,2,3",
-          "verbose_logging": "Log detailed calculation output at INFO level instead of DEBUG"
+          "verbose_logging": "Show full simulation table in System Logs"
         }
       }
     },
