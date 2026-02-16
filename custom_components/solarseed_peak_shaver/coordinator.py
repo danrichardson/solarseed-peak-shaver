@@ -66,7 +66,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             name=DOMAIN,
         )
         self.entry = entry
-        self._listeners: list[CALLBACK_TYPE] = []
+        # self._listeners: list[CALLBACK_TYPE] = []
         self._charging_active: bool = False
 
     # -----------------------------------------------------------------
