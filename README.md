@@ -66,9 +66,9 @@ The config wizard walks you through three screens:
 |---------|--------------|---------|
 | Battery SOC sensor | Sensor reporting your available battery energy in kWh | `sensor.available_battery_kwh` |
 | Solar forecast sensor | Your Solcast or Forecast.Solar entity | `sensor.solcast_pv_forecast_forecast_today` |
-| Battery capacity | Total usable storage in your system | 13 kWh |
-| Base load | Your average hourly draw during a normal day | 0.5 kW |
-| Minimum safe SOC | The battery floor you never want to hit | 2.0 kWh |
+| Battery capacity | Total usable storage in your system | 23.5 kWh |
+| Base load | Your average hourly draw during a normal day | 0.6 kW |
+| Minimum safe SOC | The battery floor you never want to hit | 1.5 kWh |
 
 **Screen 2 - Rate Schedule**
 
