@@ -31,12 +31,15 @@ trigger:
     event_type: solarseed_peak_shaver_preserve_start
 
 action:
+  - variables:
+      inverter_entity: !input inverter_mode_entity
+
   - choose:
       # Handle select entities
       - conditions:
           - condition: template
             value_template: >
-              {{ states[!input 'inverter_mode_entity'].domain == 'select' }}
+              {{ inverter_entity.split('.')[0] == 'select' }}
         sequence:
           - action: select.select_option
             target:
@@ -47,7 +50,7 @@ action:
       - conditions:
           - condition: template
             value_template: >
-              {{ states[!input 'inverter_mode_entity'].domain == 'switch' }}
+              {{ inverter_entity.split('.')[0] == 'switch' }}
         sequence:
           - action: switch.turn_off
             target:
