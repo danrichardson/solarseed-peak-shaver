@@ -1,0 +1,56 @@
+blueprint:
+  name: "Solarseed - Start Grid Charging"
+  description: >
+    Listens for the Solarseed Peak Shaver charge_start event and switches
+    your inverter to grid charging mode. Configure with your inverter's
+    mode entity and the value that enables grid charging.
+  domain: automation
+  source_url: https://github.com/danrichardson/solarseed-peak-shaver
+  input:
+    inverter_mode_entity:
+      name: Inverter mode entity
+      description: >
+        The select or switch entity that controls your inverter's operating mode.
+        Examples: select.ac500_ups_mode, select.eg4_work_mode, switch.inverter_grid_charge
+      selector:
+        entity:
+          domain:
+            - select
+            - switch
+    charge_mode_value:
+      name: Grid charging mode value
+      description: >
+        The value to set for grid charging. For select entities, this is the
+        option name (e.g. "STANDARD", "Grid First", "Charge"). For switch
+        entities, use "on".
+      selector:
+        text:
+
+trigger:
+  - platform: event
+    event_type: solarseed_peak_shaver_charge_start
+
+action:
+  - choose:
+      # Handle select entities
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ states[!input 'inverter_mode_entity'].domain == 'select' }}
+        sequence:
+          - action: select.select_option
+            target:
+              entity_id: !input inverter_mode_entity
+            data:
+              option: !input charge_mode_value
+      # Handle switch entities
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ states[!input 'inverter_mode_entity'].domain == 'switch' }}
+        sequence:
+          - action: switch.turn_on
+            target:
+              entity_id: !input inverter_mode_entity
+
+mode: single

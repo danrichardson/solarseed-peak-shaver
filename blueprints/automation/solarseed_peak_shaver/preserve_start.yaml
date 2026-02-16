@@ -1,0 +1,56 @@
+blueprint:
+  name: "Solarseed - Seasonal Preservation"
+  description: >
+    Listens for the Solarseed Peak Shaver preserve_start event and switches
+    your inverter to a battery-preserving mode during low-solar months.
+    This prevents the battery from draining overnight when there won't be
+    enough sun to replenish it the next day.
+  domain: automation
+  source_url: https://github.com/danrichardson/solarseed-peak-shaver
+  input:
+    inverter_mode_entity:
+      name: Inverter mode entity
+      description: >
+        The select or switch entity that controls your inverter's operating mode.
+      selector:
+        entity:
+          domain:
+            - select
+            - switch
+    preserve_mode_value:
+      name: Preservation mode value
+      description: >
+        The value to set for battery preservation. This should be a mode
+        where the inverter holds battery charge rather than discharging it.
+        Examples: "TIME_CONTROL", "Standby", "Grid First".
+      selector:
+        text:
+
+trigger:
+  - platform: event
+    event_type: solarseed_peak_shaver_preserve_start
+
+action:
+  - choose:
+      # Handle select entities
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ states[!input 'inverter_mode_entity'].domain == 'select' }}
+        sequence:
+          - action: select.select_option
+            target:
+              entity_id: !input inverter_mode_entity
+            data:
+              option: !input preserve_mode_value
+      # Handle switch entities
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ states[!input 'inverter_mode_entity'].domain == 'switch' }}
+        sequence:
+          - action: switch.turn_off
+            target:
+              entity_id: !input inverter_mode_entity
+
+mode: single

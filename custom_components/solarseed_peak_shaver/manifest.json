@@ -1,0 +1,12 @@
+{
+  "domain": "solarseed_peak_shaver",
+  "name": "Solarseed Peak Shaver",
+  "version": "0.1.0",
+  "codeowners": ["@danrichardson"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/danrichardson/solarseed-peak-shaver",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/danrichardson/solarseed-peak-shaver/issues",
+  "requirements": []
+}

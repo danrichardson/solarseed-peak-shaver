@@ -1,0 +1,57 @@
+blueprint:
+  name: "Solarseed - Stop Charging / Solar Priority"
+  description: >
+    Listens for the Solarseed Peak Shaver charge_stop event and switches
+    your inverter back to solar priority mode. This fires both when the
+    battery reaches its target and when the calculation determines no
+    charging is needed.
+  domain: automation
+  source_url: https://github.com/danrichardson/solarseed-peak-shaver
+  input:
+    inverter_mode_entity:
+      name: Inverter mode entity
+      description: >
+        The select or switch entity that controls your inverter's operating mode.
+        Examples: select.ac500_ups_mode, select.eg4_work_mode, switch.inverter_grid_charge
+      selector:
+        entity:
+          domain:
+            - select
+            - switch
+    solar_mode_value:
+      name: Solar priority mode value
+      description: >
+        The value to set for solar/battery priority. For select entities, this
+        is the option name (e.g. "PV_PRIORITY", "Solar First", "Self Use").
+        For switch entities, use "off".
+      selector:
+        text:
+
+trigger:
+  - platform: event
+    event_type: solarseed_peak_shaver_charge_stop
+
+action:
+  - choose:
+      # Handle select entities
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ states[!input 'inverter_mode_entity'].domain == 'select' }}
+        sequence:
+          - action: select.select_option
+            target:
+              entity_id: !input inverter_mode_entity
+            data:
+              option: !input solar_mode_value
+      # Handle switch entities
+      - conditions:
+          - condition: template
+            value_template: >
+              {{ states[!input 'inverter_mode_entity'].domain == 'switch' }}
+        sequence:
+          - action: switch.turn_off
+            target:
+              entity_id: !input inverter_mode_entity
+
+mode: single

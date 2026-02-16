@@ -1,0 +1,85 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Battery & Solar Setup",
+        "description": "Tell the Peak Shaver about your battery system and solar forecast source.",
+        "data": {
+          "battery_soc_entity": "Battery SOC sensor (kWh)",
+          "solar_forecast_entity": "Solar forecast sensor",
+          "battery_capacity": "Total battery capacity",
+          "base_load_kw": "Average base load",
+          "min_safe_soc_kwh": "Minimum safe SOC"
+        },
+        "data_description": {
+          "battery_soc_entity": "Sensor reporting available battery energy in kWh",
+          "solar_forecast_entity": "Solcast or Forecast.Solar sensor with hourly forecast data",
+          "battery_capacity": "Total usable capacity of your battery system",
+          "base_load_kw": "Your average hourly power draw during a typical day",
+          "min_safe_soc_kwh": "Battery floor - the level you never want to go below"
+        }
+      },
+      "schedule": {
+        "title": "Rate Schedule",
+        "description": "Set your TOU rate tiers and when the shaver should run its calculations.",
+        "data": {
+          "midpeak_start_hour": "Mid-peak start",
+          "peak_start_hour": "Peak start",
+          "peak_end_hour": "Peak end",
+          "weekdays_only": "Weekdays only (typical for TOU plans)",
+          "schedule_hours": "Calculation hours (comma-separated)"
+        },
+        "data_description": {
+          "midpeak_start_hour": "When mid-peak rates begin - cheaper than peak, more expensive than off-peak",
+          "peak_start_hour": "When the most expensive rates begin",
+          "peak_end_hour": "When peak rates end and off-peak resumes",
+          "weekdays_only": "Most TOU plans only have peak pricing on weekdays",
+          "schedule_hours": "Hours to run overnight calculations, e.g. 3,4,5,6"
+        }
+      },
+      "notifications": {
+        "title": "Notifications & Seasonal",
+        "description": "Configure notifications and seasonal battery preservation.",
+        "data": {
+          "notifications_enabled": "Enable notifications",
+          "notify_entity": "Notification service",
+          "charge_threshold": "Minimum charge to act on",
+          "seasonal_preservation": "Enable seasonal preservation",
+          "seasonal_months": "Preservation months (comma-separated)"
+        },
+        "data_description": {
+          "notifications_enabled": "Send notifications when charging decisions are made",
+          "notify_entity": "Notification target, e.g. notify.mobile_app_yourphone",
+          "charge_threshold": "Ignore charge amounts below this level",
+          "seasonal_preservation": "Preserve battery at end of peak during low-solar months",
+          "seasonal_months": "Months to preserve battery overnight, e.g. 11,12,1,2,3"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Entity not found in Home Assistant",
+      "invalid_time_range": "Rate periods must be in order: mid-peak < peak < end"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Solarseed Peak Shaver Settings",
+        "data": {
+          "battery_capacity": "Total battery capacity",
+          "base_load_kw": "Average base load",
+          "min_safe_soc_kwh": "Minimum safe SOC",
+          "midpeak_start_hour": "Mid-peak start",
+          "peak_start_hour": "Peak start",
+          "peak_end_hour": "Peak end",
+          "weekdays_only": "Weekdays only",
+          "notifications_enabled": "Enable notifications",
+          "notify_entity": "Notification service",
+          "charge_threshold": "Minimum charge to act on",
+          "seasonal_preservation": "Enable seasonal preservation",
+          "seasonal_months": "Preservation months"
+        }
+      }
+    }
+  }
+}
