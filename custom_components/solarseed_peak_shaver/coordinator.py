@@ -66,7 +66,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             name=DOMAIN,
         )
         self.entry = entry
-        # self._listeners: list[CALLBACK_TYPE] = []
+        self._unsub_listeners: list[CALLBACK_TYPE] = []
         self._charging_active: bool = False
 
     # -----------------------------------------------------------------
@@ -194,7 +194,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
                 minute=0,
                 second=0,
             )
-            self._listeners.append(unsub)
+            self._unsub_listeners.append(unsub)
 
         # Recalculate when solar forecast updates
         if self.solar_forecast_entity:
@@ -203,7 +203,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
                 [self.solar_forecast_entity],
                 self._on_forecast_update,
             )
-            self._listeners.append(unsub)
+            self._unsub_listeners.append(unsub)
 
         # Monitor battery SOC for target-reached detection
         if self.battery_soc_entity:
@@ -212,7 +212,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
                 [self.battery_soc_entity],
                 self._on_battery_update,
             )
-            self._listeners.append(unsub)
+            self._unsub_listeners.append(unsub)
 
         # Seasonal preservation trigger at peak_end + 5 minutes
         if self.seasonal_preservation:
@@ -223,13 +223,13 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
                 minute=5,
                 second=0,
             )
-            self._listeners.append(unsub)
+            self._unsub_listeners.append(unsub)
 
     def remove_listeners(self) -> None:
         """Remove all registered listeners."""
-        for unsub in self._listeners:
+        for unsub in self._unsub_listeners:
             unsub()
-        self._listeners.clear()
+        self._unsub_listeners.clear()
 
     @callback
     def _on_scheduled_time(self, now: datetime) -> None:

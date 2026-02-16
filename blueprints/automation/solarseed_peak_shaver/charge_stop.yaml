@@ -36,7 +36,6 @@ action:
       inverter_entity: !input inverter_mode_entity
 
   - choose:
-      # Handle select entities
       - conditions:
           - condition: template
             value_template: >
@@ -47,7 +46,6 @@ action:
               entity_id: !input inverter_mode_entity
             data:
               option: !input solar_mode_value
-      # Handle switch entities
       - conditions:
           - condition: template
             value_template: >
