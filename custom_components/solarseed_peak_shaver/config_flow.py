@@ -252,15 +252,11 @@ class PeakShaverConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config_entry: config_entries.ConfigEntry,
     ) -> PeakShaverOptionsFlow:
         """Get the options flow handler."""
-        return PeakShaverOptionsFlow(config_entry)
+        return PeakShaverOptionsFlow()
 
 
 class PeakShaverOptionsFlow(config_entries.OptionsFlow):
     """Handle options for Solarseed Peak Shaver."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -269,7 +265,7 @@ class PeakShaverOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
-        current = self.config_entry.data
+        current = {**self.config_entry.data, **self.config_entry.options}
 
         data_schema = vol.Schema(
             {

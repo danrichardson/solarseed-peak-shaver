@@ -11,7 +11,7 @@ from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_change,
 )
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .const import (
     CONF_BASE_LOAD,
@@ -363,8 +363,11 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
     def _get_hourly_solar(self) -> dict[int, float]:
         """Parse hourly solar forecast into {hour: kWh}.
 
-        Supports Solcast (detailedForecast / forecasts attributes) and
+        Supports Solcast (detailedHourly / detailedForecast attributes) and
         Forecast.Solar (compatible forecast format).
+
+        detailedHourly values are kWh per hour (use directly).
+        detailedForecast values are kW at 30-min intervals (multiply by 0.5).
         """
         state = self.hass.states.get(self.solar_forecast_entity)
         if state is None:
@@ -373,13 +376,23 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             )
             return {}
 
-        forecast_data = (
-            state.attributes.get("detailedForecast")
-            or state.attributes.get("detailedHourly")
-            or state.attributes.get("forecasts")
-            or state.attributes.get("forecast")
-            or []
-        )
+        # Prefer pre-aggregated hourly data (values are kWh)
+        forecast_data = state.attributes.get("detailedHourly")
+        period_hours = 1.0
+
+        if not forecast_data:
+            # Fall back to half-hourly data (values are kW, 30-min periods)
+            forecast_data = state.attributes.get("detailedForecast")
+            period_hours = 0.5
+
+        if not forecast_data:
+            # Generic forecast attributes (assume hourly kWh)
+            forecast_data = (
+                state.attributes.get("forecasts")
+                or state.attributes.get("forecast")
+                or []
+            )
+            period_hours = 1.0
 
         if not forecast_data:
             _LOGGER.debug(
@@ -394,13 +407,14 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
                 continue
             period_start = entry.get("period_start", "")
             pv_estimate = self._safe_float(entry.get("pv_estimate", 0))
+            energy_kwh = pv_estimate * period_hours
 
             if isinstance(period_start, datetime):
-                hourly[period_start.hour] = hourly.get(period_start.hour, 0.0) + pv_estimate
+                hourly[period_start.hour] = hourly.get(period_start.hour, 0.0) + energy_kwh
             elif isinstance(period_start, str):
                 try:
                     dt = datetime.fromisoformat(period_start)
-                    hourly[dt.hour] = hourly.get(dt.hour, 0.0) + pv_estimate
+                    hourly[dt.hour] = hourly.get(dt.hour, 0.0) + energy_kwh
                 except (ValueError, AttributeError):
                     continue
 
@@ -431,25 +445,18 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         # --- Current battery level ---
         soc_state = self.hass.states.get(self.battery_soc_entity)
         if soc_state is None:
-            _LOGGER.error(
-                "Battery SOC entity %s not found", self.battery_soc_entity
+            raise UpdateFailed(
+                f"Battery SOC entity {self.battery_soc_entity} not available"
             )
-            return self.data or {}
 
         current_soc = self._safe_float(soc_state.state)
 
         # --- Solar forecast ---
         hourly_solar = self._get_hourly_solar()
         if not hourly_solar:
-            _LOGGER.warning(
-                "No solar forecast data - using current SOC as target"
+            raise UpdateFailed(
+                f"Solar forecast entity {self.solar_forecast_entity} has no data"
             )
-            return {
-                SENSOR_TARGET_SOC: current_soc,
-                SENSOR_CHARGE_NEEDED: 0.0,
-                SENSOR_PROJECTED_MIN: current_soc,
-                SENSOR_BATTERY_AT_PEAK: current_soc,
-            }
 
         now = datetime.now()
         current_hour = now.hour
