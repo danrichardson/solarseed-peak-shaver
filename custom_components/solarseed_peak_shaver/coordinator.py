@@ -363,7 +363,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
     def _get_hourly_solar(self) -> dict[int, float]:
         """Parse hourly solar forecast into {hour: kWh}.
 
-        Supports Solcast (detailedHourly / forecasts attributes) and
+        Supports Solcast (detailedForecast / forecasts attributes) and
         Forecast.Solar (compatible forecast format).
         """
         state = self.hass.states.get(self.solar_forecast_entity)
@@ -374,11 +374,19 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             return {}
 
         forecast_data = (
-            state.attributes.get("detailedHourly")
+            state.attributes.get("detailedForecast")
+            or state.attributes.get("detailedHourly")
             or state.attributes.get("forecasts")
             or state.attributes.get("forecast")
             or []
         )
+
+        if not forecast_data:
+            _LOGGER.debug(
+                "No forecast attributes found on %s. Available attributes: %s",
+                self.solar_forecast_entity,
+                list(state.attributes.keys()),
+            )
 
         hourly: dict[int, float] = {}
         for entry in forecast_data:
@@ -387,10 +395,12 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             period_start = entry.get("period_start", "")
             pv_estimate = self._safe_float(entry.get("pv_estimate", 0))
 
-            if isinstance(period_start, str):
+            if isinstance(period_start, datetime):
+                hourly[period_start.hour] = hourly.get(period_start.hour, 0.0) + pv_estimate
+            elif isinstance(period_start, str):
                 try:
                     dt = datetime.fromisoformat(period_start)
-                    hourly[dt.hour] = pv_estimate
+                    hourly[dt.hour] = hourly.get(dt.hour, 0.0) + pv_estimate
                 except (ValueError, AttributeError):
                     continue
 
