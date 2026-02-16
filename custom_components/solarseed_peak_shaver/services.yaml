@@ -1,0 +1,3 @@
+recalculate:
+  name: Recalculate
+  description: Run the peak shaving calculation immediately and update all sensors.

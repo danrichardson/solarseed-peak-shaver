@@ -61,6 +61,19 @@
       "invalid_time_range": "Rate periods must be in order: mid-peak < peak < end"
     }
   },
+  "entity": {
+    "button": {
+      "recalculate": {
+        "name": "Recalculate"
+      }
+    }
+  },
+  "services": {
+    "recalculate": {
+      "name": "Recalculate",
+      "description": "Run the peak shaving calculation immediately and update all sensors."
+    }
+  },
   "options": {
     "step": {
       "init": {

@@ -2,7 +2,7 @@
 
 DOMAIN = "solarseed_peak_shaver"
 NAME = "Solarseed Peak Shaver"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 # --- Config keys ---
 CONF_BATTERY_CAPACITY = "battery_capacity"
@@ -47,3 +47,6 @@ SENSOR_BATTERY_AT_PEAK = "battery_at_peak_start_kwh"
 EVENT_CHARGE_START = f"{DOMAIN}_charge_start"
 EVENT_CHARGE_STOP = f"{DOMAIN}_charge_stop"
 EVENT_PRESERVE_START = f"{DOMAIN}_preserve_start"
+
+# --- Services ---
+SERVICE_RECALCULATE = "recalculate"

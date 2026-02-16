@@ -127,6 +127,16 @@ The integration creates four sensors under a "Solarseed Peak Shaver" device:
 | **Projected Minimum Battery** | The lowest your battery will get during the rate window |
 | **Battery at Peak Start** | Where your battery will be when mid-peak rates begin |
 
+## On-demand recalculation
+
+You don't have to wait for the next scheduled run. There are two ways to trigger the calculation immediately:
+
+**Button entity** - A "Recalculate" button is created under the Solarseed Peak Shaver device. Press it from the dashboard, an automation, or the entity page. You'll find it at `button.solarseed_peak_shaver_recalculate`.
+
+**Service call** - Call `solarseed_peak_shaver.recalculate` from Developer Tools > Services, scripts, or automations. No parameters needed.
+
+Both methods run the full calculation, update all sensors, and fire events exactly as a scheduled run would.
+
 ## Events
 
 The integration fires these events on the Home Assistant event bus. The blueprints listen for them, but you can also use them in your own automations.
