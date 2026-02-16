@@ -71,7 +71,6 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         self.entry = entry
         self._unsub_listeners: list[CALLBACK_TYPE] = []
         self._charging_active: bool = False
-        self.last_simulation_trace: list[dict[str, Any]] = []
         self.last_simulation_csv: str = ""
         self.last_simulation_summary: str = ""
 
@@ -503,7 +502,6 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         # --- Simulate through mid-peak + peak period ---
         battery_level = battery_at_peak
         min_battery = battery_level
-        trace: list[dict[str, Any]] = []
         csv_lines = ["hour,period,solar_kwh,load_kwh,net_kwh,battery_kwh"]
         table_lines: list[str] = []
 
@@ -515,14 +513,6 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
 
             period = "MID" if hour < peak_start else "PEAK"
 
-            trace.append({
-                "hour": hour,
-                "period": period,
-                "solar_kwh": round(solar_kwh, 3),
-                "load_kwh": round(load_kw, 3),
-                "net_kwh": round(net, 3),
-                "battery_kwh": round(battery_level, 2),
-            })
             csv_lines.append(
                 f"{hour:02d}:00,{period},{solar_kwh:.3f},{load_kw:.3f},"
                 f"{net:+.3f},{battery_level:.2f}"
@@ -533,8 +523,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
                 f"Net: {net:+.3f} | Battery: {battery_level:.2f}"
             )
 
-        # Store trace for diagnostics and sensor attributes
-        self.last_simulation_trace = trace
+        # Store for sensor attributes
         self.last_simulation_csv = "\n".join(csv_lines)
 
         # --- Calculate target ---
@@ -560,8 +549,8 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         headroom = min_battery - min_safe
         charge_below = max(current_soc - headroom, 0.0)
 
-        # --- Single consolidated log entry ---
-        summary = (
+        # --- Diagnostics: full formatted summary ---
+        self.last_simulation_summary = (
             f"Peak Shaver Calculation @ {now.strftime('%H:%M')}\n"
             f"\n"
             f"Battery:     {current_soc:>6.2f} kWh\n"
@@ -579,8 +568,24 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             f"Charge needed: {charge_needed:>6.2f} kWh\n"
             f"Charge below:  {charge_below:>6.2f} kWh"
         )
-        self.last_simulation_summary = summary
-        log(summary)
+
+        # --- Log: compact summary for HA log dialog ---
+        total_solar = sum(hourly_solar.get(h, 0.0) for h in range(sim_start, peak_end))
+        total_load = load_kw * (peak_end - sim_start)
+        charge_verdict = (
+            f"CHARGE {charge_needed:.1f} kWh"
+            if charge_needed > self.charge_threshold
+            else "NO CHARGE"
+        )
+        log(
+            f"[{charge_verdict}] "
+            f"Battery: {current_soc:.1f} kWh | "
+            f"Projected min: {min_battery:.1f} kWh | "
+            f"Target: {target_soc:.1f} kWh | "
+            f"Solar: {total_solar:.1f} kWh | "
+            f"Load: {total_load:.1f} kWh | "
+            f"Charge below: {charge_below:.1f} kWh"
+        )
 
         result = {
             SENSOR_TARGET_SOC: round(target_soc, 2),
