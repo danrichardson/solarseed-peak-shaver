@@ -1,7 +1,7 @@
 {
   "domain": "solarseed_peak_shaver",
   "name": "Solarseed Peak Shaver",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "codeowners": ["@danrichardson"],
   "config_flow": true,
   "dependencies": [],

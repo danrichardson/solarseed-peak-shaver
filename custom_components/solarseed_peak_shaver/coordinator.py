@@ -49,6 +49,7 @@ from .const import (
     EVENT_CHARGE_STOP,
     EVENT_PRESERVE_START,
     SENSOR_BATTERY_AT_PEAK,
+    SENSOR_CHARGE_BELOW,
     SENSOR_CHARGE_NEEDED,
     SENSOR_PROJECTED_MIN,
     SENSOR_TARGET_SOC,
@@ -554,6 +555,10 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         target_soc = min(target_soc, capacity)
         charge_needed = max(target_soc - current_soc, 0.0)
 
+        # Break-even SOC: below this current level, charging would trigger
+        headroom = min_battery - min_safe
+        charge_below = max(current_soc - headroom, 0.0)
+
         # --- Single consolidated log entry ---
         summary = (
             f"Peak Shaver Calculation @ {now.strftime('%H:%M')}\n"
@@ -570,7 +575,8 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             f"{verdict}\n"
             f"\n"
             f"Target:        {target_soc:>6.2f} kWh\n"
-            f"Charge needed: {charge_needed:>6.2f} kWh"
+            f"Charge needed: {charge_needed:>6.2f} kWh\n"
+            f"Charge below:  {charge_below:>6.2f} kWh"
         )
         log(summary)
 
@@ -579,6 +585,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             SENSOR_CHARGE_NEEDED: round(charge_needed, 2),
             SENSOR_PROJECTED_MIN: round(min_battery, 2),
             SENSOR_BATTERY_AT_PEAK: round(battery_at_peak, 2),
+            SENSOR_CHARGE_BELOW: round(charge_below, 2),
         }
 
         _LOGGER.info(

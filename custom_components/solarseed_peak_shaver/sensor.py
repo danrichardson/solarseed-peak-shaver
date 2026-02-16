@@ -19,6 +19,7 @@ from .const import (
     DOMAIN,
     NAME,
     SENSOR_BATTERY_AT_PEAK,
+    SENSOR_CHARGE_BELOW,
     SENSOR_CHARGE_NEEDED,
     SENSOR_PROJECTED_MIN,
     SENSOR_TARGET_SOC,
@@ -42,6 +43,10 @@ SENSOR_DESCRIPTIONS: dict[str, dict] = {
     SENSOR_BATTERY_AT_PEAK: {
         "name": "Battery at Peak Start",
         "icon": "mdi:battery-clock-outline",
+    },
+    SENSOR_CHARGE_BELOW: {
+        "name": "Charge Below",
+        "icon": "mdi:battery-arrow-down",
     },
 }
 

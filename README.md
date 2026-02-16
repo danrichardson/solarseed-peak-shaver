@@ -118,7 +118,7 @@ The blueprints handle both `select` and `switch` entity types automatically.
 
 ## Sensors
 
-The integration creates four sensors under a "Solarseed Peak Shaver" device:
+The integration creates five sensors under a "Solarseed Peak Shaver" device:
 
 | Sensor | What it tells you |
 |--------|-------------------|
@@ -126,6 +126,9 @@ The integration creates four sensors under a "Solarseed Peak Shaver" device:
 | **Charge Needed** | How much to add from the grid overnight (kWh) |
 | **Projected Minimum Battery** | The lowest your battery will get during the rate window |
 | **Battery at Peak Start** | Where your battery will be when mid-peak rates begin |
+| **Charge Below** | The SOC threshold where charging would kick in (kWh) |
+
+**Charge Below** answers the question: "how low would my battery have to be *right now* before the algorithm starts charging?" It's calculated as your current SOC minus the headroom between the projected minimum and the safety floor. If your battery is above this value, you're safe. If it drops below, the next calculation will trigger grid charging. It's a quick way to gauge how much margin you have on any given day.
 
 ## On-demand recalculation
 
