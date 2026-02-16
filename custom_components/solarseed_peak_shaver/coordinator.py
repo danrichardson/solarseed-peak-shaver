@@ -318,11 +318,11 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
 
     @callback
     def _on_preservation_time(self, now: datetime) -> None:
-        """Fire preservation event during seasonal months.
+        """Fire hold event during low-solar months.
 
-        In low-solar months, preserve battery at end of peak instead of
-        letting it drain overnight. Better to hold what you have and
-        charge from cheap off-peak grid power in the early morning.
+        When solar won't refill the battery, hold what you have after peak
+        and draw from the grid for household needs. The next morning's
+        scheduled calculation takes over from there.
         """
         if now.month not in self.seasonal_months:
             return
@@ -331,7 +331,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             return
 
         _LOGGER.info(
-            "Seasonal preservation triggered (month %d, %d:%02d)",
+            "Off-peak battery hold triggered (month %d, %d:%02d)",
             now.month,
             now.hour,
             now.minute,
@@ -349,9 +349,9 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         )
 
         self._notify(
-            "Solarseed - Preservation Mode",
-            f"Preserving battery for overnight ({current_soc:.1f} kWh). "
-            "Will recalculate at next scheduled run.",
+            "Solarseed - Off-Peak Hold",
+            f"Holding battery at {current_soc:.1f} kWh - drawing from grid "
+            "until next scheduled charge calculation.",
         )
 
     # -----------------------------------------------------------------

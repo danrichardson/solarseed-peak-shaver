@@ -29,9 +29,9 @@ The shaver understands three rate periods: off-peak, mid-peak, and peak. This ma
 
 For PGE's Time of Day plan as an example: off-peak is $0.09/kWh (overnight/weekends), mid-peak is $0.18/kWh (7 AM - 5 PM weekdays), and peak is $0.44/kWh (5 PM - 9 PM weekdays).
 
-### Seasonal preservation
+### Off-peak battery hold
 
-During low-solar months (configurable, default Nov-March), the integration fires a preservation event at the end of peak hours. The idea: in winter, your solar won't replenish the battery tomorrow, so it's better to hold what you have overnight and charge from cheap off-peak grid power in the early morning rather than letting the battery drain to nothing. The next morning's calculation run takes over from there.
+During low-solar months (configurable, default Nov-March), the integration fires a hold event at the end of peak hours. The idea: in winter, your solar won't refill the battery tomorrow. Instead of letting it drain overnight on household loads, the integration tells your inverter to hold the current battery level and draw from the grid for everything else. Your stored energy stays put until the next peak window when you actually need it. The next morning's scheduled calculation run takes over from there, deciding whether any additional off-peak charging is needed.
 
 ## What you need
 
@@ -80,15 +80,15 @@ The config wizard walks you through three screens:
 | Weekdays only | Most TOU plans are weekday-only | Yes |
 | Calculation hours | When to run the overnight math | 3,4,5,6 |
 
-**Screen 3 - Notifications & Seasonal**
+**Screen 3 - Notifications & Off-Peak Hold**
 
 | Setting | What it means | Default |
 |---------|--------------|---------|
 | Enable notifications | Send notifications when charging decisions are made | Yes |
 | Notification service | Your notify target, e.g. `notify.mobile_app_yourphone` | (empty) |
 | Minimum charge to act on | Ignore charge amounts below this | 0.5 kWh |
-| Seasonal preservation | Preserve battery overnight during low-solar months | Yes |
-| Preservation months | Which months to activate preservation | 11,12,1,2,3 |
+| Off-peak battery hold | After peak ends in low-solar months, hold battery level and draw from grid | Yes |
+| Hold months | Which months solar won't refill the battery | 11,12,1,2,3 |
 
 All settings can be changed later through the integration's **Configure** button.
 
@@ -108,11 +108,11 @@ Fires when the battery reaches target or no charging is needed. Configure with:
 - Your inverter mode entity
 - The solar priority value (e.g. `PV_PRIORITY`)
 
-**Solarseed - Seasonal Preservation**
+**Solarseed - Off-Peak Battery Hold**
 
-Fires at end of peak during configured winter months. Configure with:
+Fires at end of peak during configured low-solar months. Configure with:
 - Your inverter mode entity
-- The preservation value (e.g. `TIME_CONTROL`)
+- The hold value (e.g. `TIME_CONTROL` or `PASSTHROUGH`)
 
 The blueprints handle both `select` and `switch` entity types automatically.
 
@@ -148,7 +148,7 @@ The integration fires these events on the Home Assistant event bus. The blueprin
 |-------|------|------|
 | `solarseed_peak_shaver_charge_start` | Charging is needed | current_soc, target_soc, charge_needed, solar_forecast |
 | `solarseed_peak_shaver_charge_stop` | Target reached or no charging needed | current_soc, target_soc |
-| `solarseed_peak_shaver_preserve_start` | Seasonal preservation triggered | current_soc, month |
+| `solarseed_peak_shaver_preserve_start` | Off-peak battery hold triggered | current_soc, month |
 
 ## Background
 

@@ -38,22 +38,22 @@
         }
       },
       "notifications": {
-        "title": "Notifications & Seasonal",
-        "description": "Configure notifications and seasonal battery preservation.",
+        "title": "Notifications & Off-Peak Hold",
+        "description": "Configure notifications and off-peak battery hold for low-solar months.",
         "data": {
           "notifications_enabled": "Enable notifications",
           "notify_entity": "Notification service",
           "charge_threshold": "Minimum charge to act on",
-          "seasonal_preservation": "Enable seasonal preservation",
-          "seasonal_months": "Preservation months (comma-separated)",
+          "seasonal_preservation": "Enable off-peak battery hold",
+          "seasonal_months": "Hold months (comma-separated)",
           "verbose_logging": "Verbose logging"
         },
         "data_description": {
           "notifications_enabled": "Send notifications when charging decisions are made",
           "notify_entity": "Notification target, e.g. notify.mobile_app_yourphone",
           "charge_threshold": "Ignore charge amounts below this level",
-          "seasonal_preservation": "Preserve battery at end of peak during low-solar months",
-          "seasonal_months": "Months to preserve battery overnight, e.g. 11,12,1,2,3",
+          "seasonal_preservation": "After peak ends in low-solar months, hold battery level and draw from grid instead of draining stored energy",
+          "seasonal_months": "Months when solar won't refill the battery, e.g. 11,12,1,2,3",
           "verbose_logging": "Show full simulation table in System Logs"
         }
       }
@@ -91,8 +91,8 @@
           "notifications_enabled": "Enable notifications",
           "notify_entity": "Notification service",
           "charge_threshold": "Minimum charge to act on",
-          "seasonal_preservation": "Enable seasonal preservation",
-          "seasonal_months": "Preservation months",
+          "seasonal_preservation": "Enable off-peak battery hold",
+          "seasonal_months": "Hold months",
           "verbose_logging": "Verbose logging"
         }
       }
