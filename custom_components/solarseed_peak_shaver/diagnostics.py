@@ -53,6 +53,10 @@ async def async_get_config_entry_diagnostics(
         }
 
         result["charging_active"] = coordinator._charging_active
-        result["last_simulation"] = coordinator.last_simulation_summary
+        result["last_simulation"] = (
+            coordinator.last_simulation_summary.split("\n")
+            if coordinator.last_simulation_summary
+            else []
+        )
 
     return result
