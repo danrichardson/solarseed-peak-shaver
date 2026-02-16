@@ -73,6 +73,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         self._charging_active: bool = False
         self.last_simulation_trace: list[dict[str, Any]] = []
         self.last_simulation_csv: str = ""
+        self.last_simulation_summary: str = ""
 
     # -----------------------------------------------------------------
     # Config accessors
@@ -578,6 +579,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             f"Charge needed: {charge_needed:>6.2f} kWh\n"
             f"Charge below:  {charge_below:>6.2f} kWh"
         )
+        self.last_simulation_summary = summary
         log(summary)
 
         result = {
