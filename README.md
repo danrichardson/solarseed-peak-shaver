@@ -94,21 +94,35 @@ All settings can be changed later through the integration's **Configure** button
 
 ### Step 2: Import the blueprints
 
-The integration tells your battery *what* to do. The blueprints tell your inverter *how* to do it. Go to **Settings > Automations & Scenes > Blueprints** and import the three blueprints from the repo. Each one asks for just two things: your inverter's mode entity and the value to set.
+The integration tells your battery *what* to do. The blueprints tell your inverter *how* to do it.
 
-**Solarseed - Start Grid Charging**
+Go to **Settings > Automations & Scenes > Blueprints**, click **Import Blueprint**, and paste each URL below. After importing, click **Create Automation** from each blueprint to configure it. Each one asks for just two things: your inverter's mode entity and the value to set.
+
+**Solarseed - Start Grid Charging** ([import](https://github.com/danrichardson/solarseed-peak-shaver/blob/main/blueprints/automation/solarseed_peak_shaver/charge_start.yaml))
+
+```
+https://github.com/danrichardson/solarseed-peak-shaver/blob/main/blueprints/automation/solarseed_peak_shaver/charge_start.yaml
+```
 
 Fires when charging is needed. Configure with:
 - Your inverter mode entity (e.g. `select.ac500_ups_mode`)
 - The grid charging value (e.g. `STANDARD`)
 
-**Solarseed - Stop Charging / Solar Priority**
+**Solarseed - Stop Charging / Solar Priority** ([import](https://github.com/danrichardson/solarseed-peak-shaver/blob/main/blueprints/automation/solarseed_peak_shaver/charge_stop.yaml))
+
+```
+https://github.com/danrichardson/solarseed-peak-shaver/blob/main/blueprints/automation/solarseed_peak_shaver/charge_stop.yaml
+```
 
 Fires when the battery reaches target or no charging is needed. Configure with:
 - Your inverter mode entity
 - The solar priority value (e.g. `PV_PRIORITY`)
 
-**Solarseed - Off-Peak Battery Hold**
+**Solarseed - Off-Peak Battery Hold** ([import](https://github.com/danrichardson/solarseed-peak-shaver/blob/main/blueprints/automation/solarseed_peak_shaver/preserve_start.yaml))
+
+```
+https://github.com/danrichardson/solarseed-peak-shaver/blob/main/blueprints/automation/solarseed_peak_shaver/preserve_start.yaml
+```
 
 Fires at end of peak during configured low-solar months. Configure with:
 - Your inverter mode entity

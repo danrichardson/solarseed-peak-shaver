@@ -1,10 +1,10 @@
 blueprint:
-  name: "Solarseed - Seasonal Preservation"
+  name: "Solarseed - Off-Peak Battery Hold"
   description: >
-    Listens for the Solarseed Peak Shaver preserve_start event and switches
-    your inverter to a battery-preserving mode during low-solar months.
-    This prevents the battery from draining overnight when there won't be
-    enough sun to replenish it the next day.
+    Listens for the Solarseed Peak Shaver preserve_start event and holds
+    your battery level after peak hours during low-solar months. The inverter
+    draws from the grid for household loads instead of draining stored energy
+    that won't be replenished by tomorrow's sun.
   domain: automation
   source_url: https://github.com/danrichardson/solarseed-peak-shaver
   input:
@@ -18,11 +18,11 @@ blueprint:
             - select
             - switch
     preserve_mode_value:
-      name: Preservation mode value
+      name: Hold mode value
       description: >
-        The value to set for battery preservation. This should be a mode
-        where the inverter holds battery charge rather than discharging it.
-        Examples: "TIME_CONTROL", "Standby", "Grid First".
+        The value to set for battery hold. This should be a mode where the
+        inverter holds battery charge and draws from the grid instead.
+        Examples: "TIME_CONTROL", "PASSTHROUGH", "Grid First".
       selector:
         text:
 
