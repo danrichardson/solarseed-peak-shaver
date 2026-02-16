@@ -526,7 +526,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
                 f"{net:+.3f},{battery_level:.2f}"
             )
             table_lines.append(
-                f"  {hour:02d}:00 [{period:4s}] | "
+                f"{hour:02d}:00 [{period:4s}] | "
                 f"Solar: {solar_kwh:.3f} | Load: {load_kw:.3f} | "
                 f"Net: {net:+.3f} | Battery: {battery_level:.2f}"
             )
@@ -540,14 +540,15 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             deficit = min_safe - min_battery
             target_soc = current_soc + deficit
             verdict = (
-                f"CHARGE NEEDED: deficit {deficit:.2f} kWh "
-                f"(projected min {min_battery:.2f} < floor {min_safe:.2f})"
+                f"CHARGE NEEDED:\n"
+                f"Projected min: {min_battery:.2f} kWh < floor {min_safe:.2f} kWh\n"
+                f"Deficit: {deficit:.2f} kWh"
             )
         else:
             target_soc = current_soc
             verdict = (
-                f"NO CHARGE NEEDED: projected min {min_battery:.2f} kWh "
-                f">= floor {min_safe:.2f} kWh"
+                f"NO CHARGE NEEDED:\n"
+                f"Projected min: {min_battery:.2f} kWh >= floor {min_safe:.2f} kWh"
             )
 
         target_soc = min(target_soc, capacity)
@@ -556,15 +557,20 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         # --- Single consolidated log entry ---
         summary = (
             f"Peak Shaver Calculation @ {now.strftime('%H:%M')}\n"
-            f"  Battery: {current_soc:.2f} kWh | "
-            f"Capacity: {capacity:.2f} kWh | "
-            f"Min safe: {min_safe:.2f} kWh | "
-            f"Base load: {load_kw:.1f} kW\n"
-            f"  {pre_sim_note}\n"
+            f"\n"
+            f"Battery:     {current_soc:>6.2f} kWh\n"
+            f"Capacity:    {capacity:>6.2f} kWh\n"
+            f"Min safe:    {min_safe:>6.2f} kWh\n"
+            f"Base load:   {load_kw:>5.1f} kW\n"
+            f"\n"
+            f"{pre_sim_note}\n"
+            f"\n"
             + "\n".join(table_lines) + "\n"
-            f"  {verdict}\n"
-            f"  Target: {target_soc:.2f} kWh | "
-            f"Charge needed: {charge_needed:.2f} kWh"
+            f"\n"
+            f"{verdict}\n"
+            f"\n"
+            f"Target:        {target_soc:>6.2f} kWh\n"
+            f"Charge needed: {charge_needed:>6.2f} kWh"
         )
         log(summary)
 
