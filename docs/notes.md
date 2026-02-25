@@ -1,0 +1,1 @@
+It's detecting a deficit in mid-peak too often. I want to increase the charge before 7am, so that the deficit is filled less often in mid-peak. Also, I think the 3.2 kwh minimum can be reduced as it gets closer to 9pm. It can probably taper down closer to 2 kwh (5%, or around 1.2 kwh is when the inverter starts pulling grid power and charging to 3.2 kwh)
