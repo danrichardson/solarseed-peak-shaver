@@ -1,3 +1,42 @@
 recalculate:
   name: Recalculate
   description: Run the peak shaving calculation immediately and update all sensors.
+
+performance_report:
+  name: Performance Report
+  description: Get performance scorecards for recent days. Returns data as a service response.
+  fields:
+    days:
+      name: Days
+      description: Number of days to include in the report (default 7, max 90).
+      required: false
+      default: 7
+      selector:
+        number:
+          min: 1
+          max: 90
+          step: 1
+
+export_history:
+  name: Export History
+  description: Export performance history as CSV. Returns CSV data in the service response for analysis.
+  fields:
+    days:
+      name: Days
+      description: Number of days to export (omit for all available data, max 90).
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 90
+          step: 1
+    format:
+      name: Format
+      description: "Export format: 'daily' for daily scorecards, 'hourly_solar' for per-hour solar predicted vs actual."
+      required: false
+      default: daily
+      selector:
+        select:
+          options:
+            - daily
+            - hourly_solar

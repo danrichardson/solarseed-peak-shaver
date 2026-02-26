@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    name: Validate Integration
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install test dependencies
+        run: pip install pytest pytest-asyncio pyyaml
+
+      - name: Validate JSON files
+        run: |
+          python -c "
+          import json, sys
+          files = [
+            'hacs.json',
+            'custom_components/solarseed_peak_shaver/manifest.json',
+            'custom_components/solarseed_peak_shaver/strings.json',
+            'custom_components/solarseed_peak_shaver/translations/en.json',
+          ]
+          for f in files:
+            try:
+              json.load(open(f))
+              print(f'  ✓ {f}')
+            except Exception as e:
+              print(f'  ✗ {f}: {e}')
+              sys.exit(1)
+          print('All JSON valid')
+          "
+
+      - name: Validate Python syntax
+        run: |
+          python -m py_compile custom_components/solarseed_peak_shaver/__init__.py
+          python -m py_compile custom_components/solarseed_peak_shaver/coordinator.py
+          python -m py_compile custom_components/solarseed_peak_shaver/sensor.py
+          python -m py_compile custom_components/solarseed_peak_shaver/config_flow.py
+          python -m py_compile custom_components/solarseed_peak_shaver/store.py
+          python -m py_compile custom_components/solarseed_peak_shaver/button.py
+          python -m py_compile custom_components/solarseed_peak_shaver/diagnostics.py
+          python -m py_compile custom_components/solarseed_peak_shaver/const.py
+          python -m py_compile tools/analyze_performance.py
+          echo "All Python files compile OK"
+
+      - name: Validate HACS requirements
+        run: |
+          python -c "
+          import json, sys
+          errors = []
+
+          # hacs.json
+          h = json.load(open('hacs.json'))
+          for key in ['name', 'homeassistant']:
+            if key not in h:
+              errors.append(f'hacs.json: missing {key}')
+
+          # manifest.json
+          m = json.load(open('custom_components/solarseed_peak_shaver/manifest.json'))
+          for key in ['domain', 'name', 'version', 'codeowners', 'documentation', 'config_flow', 'iot_class']:
+            if key not in m:
+              errors.append(f'manifest.json: missing {key}')
+          if m.get('domain') != 'solarseed_peak_shaver':
+            errors.append('manifest.json: domain must be solarseed_peak_shaver')
+          if not m.get('config_flow'):
+            errors.append('manifest.json: config_flow must be true')
+
+          # Version format
+          parts = m.get('version', '').split('.')
+          if len(parts) != 3 or not all(p.isdigit() for p in parts):
+            errors.append(f'manifest.json: invalid version format: {m.get(\"version\")}')
+
+          # strings.json ↔ translations/en.json sync
+          s = json.load(open('custom_components/solarseed_peak_shaver/strings.json'))
+          t = json.load(open('custom_components/solarseed_peak_shaver/translations/en.json'))
+          if set(s.keys()) != set(t.keys()):
+            errors.append('strings.json and translations/en.json top-level keys do not match')
+
+          if errors:
+            for e in errors:
+              print(f'ERROR: {e}')
+            sys.exit(1)
+          print('HACS validation passed')
+          "
+
+      - name: Validate services.yaml
+        run: |
+          python -c "
+          import yaml, sys
+          svcs = yaml.safe_load(open('custom_components/solarseed_peak_shaver/services.yaml'))
+          for svc in ['recalculate', 'performance_report', 'export_history']:
+            if svc not in svcs:
+              print(f'ERROR: services.yaml missing {svc}')
+              sys.exit(1)
+          print('services.yaml valid')
+          "
+
+      - name: Run tests
+        run: python -m pytest tests/ -v --tb=short
+
+  hassfest:
+    name: HACS Validation (hassfest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: HACS Action
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration

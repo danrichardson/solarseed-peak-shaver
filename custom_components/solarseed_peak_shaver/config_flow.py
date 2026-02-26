@@ -24,6 +24,7 @@ from .const import (
     CONF_SCHEDULE_HOURS,
     CONF_SEASONAL_MONTHS,
     CONF_SEASONAL_PRESERVATION,
+    CONF_SOLAR_ACTUAL_ENTITY,
     CONF_SOLAR_FORECAST_ENTITY,
     CONF_VERBOSE_LOGGING,
     CONF_WEEKDAYS_ONLY,
@@ -38,6 +39,7 @@ from .const import (
     DEFAULT_SCHEDULE_HOURS,
     DEFAULT_SEASONAL_MONTHS,
     DEFAULT_SEASONAL_PRESERVATION,
+    DEFAULT_SOLAR_ACTUAL_ENTITY,
     DEFAULT_SOLAR_FORECAST_ENTITY,
     DEFAULT_VERBOSE_LOGGING,
     DEFAULT_WEEKDAYS_ONLY,
@@ -114,6 +116,11 @@ class PeakShaverConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         min=0.0, max=100.0, step=0.1, unit_of_measurement="kWh",
                         mode=selector.NumberSelectorMode.BOX,
                     )
+                ),
+                vol.Optional(
+                    CONF_SOLAR_ACTUAL_ENTITY,
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
                 ),
             }
         )
@@ -373,6 +380,12 @@ class PeakShaverOptionsFlow(config_entries.OptionsFlow):
                     CONF_VERBOSE_LOGGING,
                     default=current.get(CONF_VERBOSE_LOGGING, DEFAULT_VERBOSE_LOGGING),
                 ): selector.BooleanSelector(),
+                vol.Optional(
+                    CONF_SOLAR_ACTUAL_ENTITY,
+                    description={"suggested_value": current.get(CONF_SOLAR_ACTUAL_ENTITY, "")},
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
             }
         )
 

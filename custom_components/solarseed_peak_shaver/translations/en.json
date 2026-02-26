@@ -9,14 +9,16 @@
           "solar_forecast_entity": "Solar forecast sensor",
           "battery_capacity": "Total battery capacity",
           "base_load_kw": "Average base load",
-          "min_safe_soc_kwh": "Minimum safe SOC"
+          "min_safe_soc_kwh": "Minimum safe SOC",
+          "solar_actual_entity": "Solar production sensor (optional)"
         },
         "data_description": {
           "battery_soc_entity": "Sensor reporting available battery energy in kWh",
           "solar_forecast_entity": "Solcast or Forecast.Solar sensor with hourly forecast data",
           "battery_capacity": "Total usable capacity of your battery system",
           "base_load_kw": "Your average hourly power draw during a typical day",
-          "min_safe_soc_kwh": "Battery floor - the level you never want to go below"
+          "min_safe_soc_kwh": "Battery floor - the level you never want to go below",
+          "solar_actual_entity": "Sensor reporting cumulative solar production today in kWh (enables forecast accuracy tracking)"
         }
       },
       "schedule": {
@@ -68,12 +70,37 @@
       "recalculate": {
         "name": "Recalculate"
       }
+    },
+    "sensor": {
+      "daily_grade": {
+        "name": "Daily Grade"
+      },
+      "solar_forecast_accuracy": {
+        "name": "Solar Forecast Accuracy"
+      },
+      "effective_base_load": {
+        "name": "Effective Base Load"
+      },
+      "prediction_accuracy": {
+        "name": "Prediction Accuracy"
+      },
+      "rolling_score": {
+        "name": "Algorithm Score"
+      }
     }
   },
   "services": {
     "recalculate": {
       "name": "Recalculate",
       "description": "Run the peak shaving calculation immediately and update all sensors."
+    },
+    "performance_report": {
+      "name": "Performance Report",
+      "description": "Get performance scorecards for recent days."
+    },
+    "export_history": {
+      "name": "Export History",
+      "description": "Export performance history as CSV for statistical analysis."
     }
   },
   "options": {
@@ -93,7 +120,8 @@
           "charge_threshold": "Minimum charge to act on",
           "seasonal_preservation": "Enable off-peak battery hold",
           "seasonal_months": "Hold months",
-          "verbose_logging": "Verbose logging"
+          "verbose_logging": "Verbose logging",
+          "solar_actual_entity": "Solar production sensor"
         }
       }
     }

@@ -2,7 +2,7 @@
 
 DOMAIN = "solarseed_peak_shaver"
 NAME = "Solarseed Peak Shaver"
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 
 # --- Config keys ---
 CONF_BATTERY_CAPACITY = "battery_capacity"
@@ -10,6 +10,7 @@ CONF_BASE_LOAD = "base_load_kw"
 CONF_MIN_SAFE_SOC = "min_safe_soc_kwh"
 CONF_BATTERY_SOC_ENTITY = "battery_soc_entity"
 CONF_SOLAR_FORECAST_ENTITY = "solar_forecast_entity"
+CONF_SOLAR_ACTUAL_ENTITY = "solar_actual_entity"
 CONF_MIDPEAK_START = "midpeak_start_hour"
 CONF_PEAK_START = "peak_start_hour"
 CONF_PEAK_END = "peak_end_hour"
@@ -32,6 +33,7 @@ DEFAULT_PEAK_END = 21
 DEFAULT_SCHEDULE_HOURS = [3, 4, 5, 6]
 DEFAULT_WEEKDAYS_ONLY = True
 DEFAULT_SOLAR_FORECAST_ENTITY = "sensor.solcast_pv_forecast_forecast_today"
+DEFAULT_SOLAR_ACTUAL_ENTITY = ""
 DEFAULT_NOTIFICATIONS_ENABLED = True
 DEFAULT_NOTIFY_ENTITY = ""
 DEFAULT_CHARGE_THRESHOLD = 0.5
@@ -46,6 +48,13 @@ SENSOR_PROJECTED_MIN = "projected_minimum_kwh"
 SENSOR_BATTERY_AT_PEAK = "battery_at_peak_start_kwh"
 SENSOR_CHARGE_BELOW = "charge_below_kwh"
 
+# --- Performance tracking sensor keys ---
+SENSOR_DAILY_GRADE = "daily_grade"
+SENSOR_SOLAR_ACCURACY = "solar_forecast_accuracy"
+SENSOR_EFFECTIVE_BASE_LOAD = "effective_base_load"
+SENSOR_PREDICTION_ACCURACY = "prediction_accuracy"
+SENSOR_ROLLING_SCORE = "rolling_score"
+
 # --- Events ---
 EVENT_CHARGE_START = f"{DOMAIN}_charge_start"
 EVENT_CHARGE_STOP = f"{DOMAIN}_charge_stop"
@@ -53,3 +62,5 @@ EVENT_PRESERVE_START = f"{DOMAIN}_preserve_start"
 
 # --- Services ---
 SERVICE_RECALCULATE = "recalculate"
+SERVICE_PERFORMANCE_REPORT = "performance_report"
+SERVICE_EXPORT_HISTORY = "export_history"

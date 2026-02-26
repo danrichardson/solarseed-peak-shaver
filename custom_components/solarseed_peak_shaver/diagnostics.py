@@ -55,4 +55,39 @@ async def async_get_config_entry_diagnostics(
         result["charging_active"] = coordinator._charging_active
         result["last_simulation"] = coordinator.last_simulation_summary
 
+        # Performance tracking data
+        result["performance"] = {
+            "last_daily_scorecard": coordinator.last_daily_scorecard,
+            "solar_correction_factor": round(
+                coordinator.solar_correction_factor, 3
+            ),
+            "effective_base_load": round(coordinator.effective_base_load, 2),
+            "prediction_snapshots_today": len(
+                coordinator.prediction_snapshots
+            ),
+            "charge_events_today": coordinator.charge_events_today,
+            "actual_soc_checkpoints": coordinator.actual_soc_checkpoints,
+            "actual_solar_hourly": coordinator.actual_solar_hourly,
+            "recent_grades": (
+                coordinator.store.recent_grades(7)
+                if coordinator.store
+                else []
+            ),
+            "rolling_score_7d": (
+                coordinator.store.rolling_score(7)
+                if coordinator.store
+                else None
+            ),
+            "rolling_margin_14d": (
+                coordinator.store.rolling_margin(14)
+                if coordinator.store
+                else None
+            ),
+            "history_days_stored": (
+                len(coordinator.store.days)
+                if coordinator.store
+                else 0
+            ),
+        }
+
     return result
