@@ -34,3 +34,6 @@ __pycache__/
 .venv/
 venv/
 
+
+# Household energy data pulled for analysis (not committed unless Dan asks)
+analysis/
