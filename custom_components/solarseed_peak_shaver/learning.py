@@ -54,6 +54,7 @@ class Curve:
         self.e = [0.0] * self.n
         self.p = [0.0] * self.n
         self.h = [0.0] * self.n
+        self.pt = [0.0] * self.n     # points seen in observations that carried a duration
 
     # -- learning ---------------------------------------------------------
 
@@ -64,6 +65,7 @@ class Curve:
             self.e[i] *= f
             self.p[i] *= f
             self.h[i] *= f
+            self.pt[i] *= f
 
     def _overlaps(self, a: float, b: float):
         """Yield (bin index, gauge points of [a, b] inside that bin)."""
@@ -84,7 +86,9 @@ class Curve:
             share = pts / span
             self.e[i] += energy_kwh * share
             self.p[i] += pts
-            self.h[i] += hours * share
+            if hours > 0:
+                self.h[i] += hours * share
+                self.pt[i] += pts
 
     # -- reading ----------------------------------------------------------
 
@@ -97,7 +101,7 @@ class Curve:
 
     def hours_per_pt(self, i: int) -> float:
         prior = self.prior_hours_per_pt or 0.0
-        return (self.h[i] + prior * self.prior_pts) / (self.p[i] + self.prior_pts)
+        return (self.h[i] + prior * self.prior_pts) / (self.pt[i] + self.prior_pts)
 
     def energy_between(self, g_lo: float, g_hi: float) -> float:
         """kWh between two gauge readings."""
@@ -150,6 +154,7 @@ class Curve:
             "e": [round(x, 5) for x in self.e],
             "p": [round(x, 4) for x in self.p],
             "h": [round(x, 5) for x in self.h],
+            "pt": [round(x, 4) for x in self.pt],
         }
 
     @classmethod
@@ -163,10 +168,19 @@ class Curve:
             half_life_days=d.get("half_life_days", defaults.get("half_life_days", 30.0)),
             prior_hours_per_pt=d.get("prior_hours_per_pt", defaults.get("prior_hours_per_pt")),
         )
-        for name in ("e", "p", "h"):
-            vals = d.get(name)
-            if isinstance(vals, list) and len(vals) == c.n:
-                setattr(c, name, [float(x) for x in vals])
+        try:
+            loaded = {}
+            for name in ("e", "p", "h", "pt"):
+                vals = d.get(name)
+                if isinstance(vals, list) and len(vals) == c.n:
+                    loaded[name] = [float(x) for x in vals]
+            if "e" in loaded and "p" in loaded:
+                c.e, c.p = loaded["e"], loaded["p"]
+                if "h" in loaded and "pt" in loaded:
+                    c.h, c.pt = loaded["h"], loaded["pt"]
+        except (TypeError, ValueError):
+            return cls(bin_pts=c.bin_pts, prior_per_pt=c.prior_per_pt, prior_pts=c.prior_pts,
+                       half_life_days=c.half_life_days, prior_hours_per_pt=c.prior_hours_per_pt)
         return c
 
 
@@ -344,10 +358,14 @@ def build_from_samples(samples, learner: Learner | None = None) -> Learner:
     """
     ln = learner or Learner()
     last_date = None
+    last_when = None
     for when, gauge, grid_kw, load_kw, pv_kw, hours in samples:
-        if None in (gauge, grid_kw, load_kw):
+        gap = last_when is not None and (when - last_when).total_seconds() > 1.5 * hours * 3600.0
+        last_when = when
+        if gap or None in (gauge, grid_kw, load_kw):
             ln.sample(0.0, 0.0, 0.0, 0.0, 0.0)          # gap: drop the open stretch
-            continue
+            if None in (gauge, grid_kw, load_kw):
+                continue
         d = when.date()
         if last_date is not None and d != last_date:
             ln.age(float((d - last_date).days))

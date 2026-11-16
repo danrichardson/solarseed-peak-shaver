@@ -62,6 +62,7 @@ class PlanInputs:
     bank_full: bool = False             # the inverter has ended the charge
     topup_pending: bool = False         # weekly top-up owed and not yet finished
     current_mode: str | None = None     # what was last commanded, for hysteresis
+    current_phase: str | None = None    # the phase that command was issued in
     fallback_charge_kw: float = 1.5     # net charge rate assumed before one is learned
 
 
@@ -137,7 +138,9 @@ def decide(inp: PlanInputs, learner: Learner, profile: LoadProfile) -> Decision:
     ready = model_ready(learner, profile)
     window = (inp.midpeak_start, inp.peak_end)
     gauge = inp.gauge
-    remaining = None if gauge is None else learner.discharge.energy_between(inp.floor, gauge)
+    remaining = None
+    if gauge is not None:
+        remaining = learner.discharge.energy_between(inp.floor, gauge) if gauge > inp.floor else 0.0
 
     def make(mode: str, phase: str, reason: str, **kw: Any) -> Decision:
         return Decision(mode=mode, phase=phase, reason=reason, energy_remaining_kwh=remaining,
@@ -159,7 +162,7 @@ def decide(inp: PlanInputs, learner: Learner, profile: LoadProfile) -> Decision:
         peak = window_need(profile, inp.solar_today, inp.peak_start, inp.peak_end, inp.load_quantile,
                            inp.solar_confidence, window)
         short = peak + inp.margin_kwh - (remaining - to_peak)
-        charging = inp.current_mode == MODE_CHARGE
+        charging = inp.current_mode == MODE_CHARGE and inp.current_phase == "mid-peak"
         if short > (0.0 if charging else 0.3):
             i = min(learner.grid_charge.n - 1, int(gauge // learner.grid_charge.bin_pts))
             hpp = learner.grid_charge.hours_per_pt(i)

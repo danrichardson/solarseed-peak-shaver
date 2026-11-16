@@ -39,7 +39,11 @@ from .planner import (
 _LOGGER = logging.getLogger(__name__)
 
 VERIFY_AFTER_MIN = 3        # minutes after a command before checking the inverter obeyed
-VERIFY_RETRIES = 3
+VERIFY_RETRIES = 3          # per commanded mode; not replenished until the mode changes
+VERIFY_MISMATCH_MIN = 2     # consecutive minutes of disagreement before sending again
+GAUGE_GRACE_MIN = 15        # minutes a missing gauge is bridged with its last reading
+TICK_FAILS_FAILSAFE = 10    # consecutive failed ticks before returning the inverter to battery
+PUBLISH_EVERY_MIN = 5       # sensors are refreshed on a change, and at least this often
 FULL_CONFIRM_MIN = 10       # minutes of "charging asked, nothing going in" that mean full
 TOPUP_MAX_HOURS = 24        # a weekly top-up that has not finished by then is abandoned
 
@@ -56,7 +60,8 @@ def mode_matches(mode: str, gauge: float | None, grid_kw: float, load_kw: float,
     where the grid legitimately carries the house).
     """
     if mode == MODE_CHARGE:
-        if bank_full or (gauge is not None and gauge >= 99):
+        # near the top the charger tapers and may legitimately take almost nothing
+        if bank_full or gauge is None or gauge >= 95:
             return None
         return grid_kw > load_kw + 0.2
     if mode == MODE_DISCHARGE:
@@ -90,9 +95,18 @@ class LearnedRuntime:
         self._day_cover: dict[int, float] = {}
         self._commanded: str | None = None
         self._commanded_at: datetime | None = None
+        self._commanded_phase: str | None = None
         self._retries = 0
+        self._mismatch_min = 0
         self._alerted = False
         self._idle_charge_min = 0
+        self._full_at: float | None = None
+        self._last_gauge: float | None = None
+        self._last_gauge_at: datetime | None = None
+        self._first_tick: datetime | None = None
+        self._tick_fails = 0
+        self._failsafe_sent = False
+        self._published_key: Any = None
         self._shadow: dict[str, Any] = {}
         self._grid_kwh: dict[str, float] = {}
         self._dirty = False
@@ -101,7 +115,7 @@ class LearnedRuntime:
     # Setup, persistence
     # -----------------------------------------------------------------
     def setup(self) -> None:
-        self.load_state(self.coord.store.learning)
+        """Start the minute timer. Call load_state() first."""
         self._unsub.append(async_track_time_change(self.hass, self._on_minute, second=0))
 
     def remove(self) -> None:
@@ -115,6 +129,14 @@ class LearnedRuntime:
             self.profile = LoadProfile.from_dict(blob.get("profile"), default_kw=self.coord.base_load_kw)
             self.topup_pending = bool(blob.get("topup_pending", False))
             self._topup_day = blob.get("topup_day") or None
+            cmd = blob.get("commanded") or {}
+            try:
+                age = (datetime.now() - datetime.fromisoformat(cmd.get("at", ""))).total_seconds()
+            except (TypeError, ValueError):
+                age = None
+            if cmd.get("mode") in (MODE_CHARGE, MODE_DISCHARGE, MODE_HOLD) and age is not None and 0 <= age < 5400:
+                self._commanded, self._commanded_phase = cmd["mode"], cmd.get("phase")
+                self._commanded_at = datetime.fromisoformat(cmd["at"])
             day = blob.get("day") or {}
             if day.get("date") == datetime.now().strftime("%Y-%m-%d"):
                 self._day = datetime.now().date()
@@ -133,6 +155,11 @@ class LearnedRuntime:
             "profile": self.profile.to_dict(),
             "topup_pending": self.topup_pending,
             "topup_day": self._topup_day,
+            "commanded": {
+                "mode": self._commanded,
+                "phase": self._commanded_phase,
+                "at": self._commanded_at.isoformat(timespec="seconds") if self._commanded_at else None,
+            },
             "day": {
                 "date": self._day.isoformat() if self._day else None,
                 "kwh": {str(h): round(v, 4) for h, v in self._day_kwh.items()},
@@ -197,45 +224,91 @@ class LearnedRuntime:
     def _on_minute(self, now: datetime) -> None:
         try:
             self.tick(now.replace(tzinfo=None))
+            self._tick_fails = 0
+            self._failsafe_sent = False
         except Exception:  # noqa: BLE001
-            _LOGGER.exception("Learned planner tick failed")
+            self._tick_fails += 1
+            if self._tick_fails == 1 or self._tick_fails % 60 == 0:
+                _LOGGER.exception("Learned planner tick failed (%d in a row)", self._tick_fails)
+            self._failsafe()
+
+    def _failsafe(self) -> None:
+        """If the planner keeps failing while in control, put the inverter back on battery once."""
+        try:
+            if (self._tick_fails < TICK_FAILS_FAILSAFE or self._failsafe_sent
+                    or self.coord.planner != PLANNER_LEARNED):
+                return
+            self._failsafe_sent = True
+            self._commanded = None
+            _LOGGER.error("Learned planner failed %d times in a row; returning the inverter to battery mode",
+                          self._tick_fails)
+            self.hass.bus.async_fire(EVENT_CHARGE_STOP, {"planner": PLANNER_LEARNED, "reason": "planner failure"})
+            self.coord._notify("Solarseed - planner error",
+                               "The learned planner keeps failing. Inverter returned to battery mode. Check the log.")
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Learned planner failsafe failed")
 
     def tick(self, now: datetime) -> None:
         c = self.coord
         hours = (now - self._last_tick).total_seconds() / 3600.0 if self._last_tick else 0.0
         self._last_tick = now
 
+        if self._first_tick is None:
+            self._first_tick = now
         gauge = self.read_gauge()
         grid = self._power_kw(c.grid_power_entity)
         load = self._power_kw(c.load_power_entity)
-        pv = self._power_kw(c.pv_power_entity) or 0.0
+        pv = self._power_kw(c.pv_power_entity)
+        pv_ok = pv is not None or not c.pv_power_entity     # a configured but unreadable PV sensor is a gap
+        pv = pv or 0.0
 
         self._roll_day(now)
 
-        if None not in (gauge, grid, load) and 0 < hours <= Learner.MAX_SAMPLE_HOURS:
+        if None not in (gauge, grid, load) and pv_ok and 0 < hours <= Learner.MAX_SAMPLE_HOURS:
             self.learner.sample(gauge, max(grid, 0.0), max(load, 0.0), max(pv, 0.0), hours)
             self._day_kwh[now.hour] = self._day_kwh.get(now.hour, 0.0) + max(load, 0.0) * hours
             self._day_cover[now.hour] = self._day_cover.get(now.hour, 0.0) + hours
             period = c._classify_period(now) if is_tou_day(now.date(), c.weekdays_only) else "off-peak"
             self._grid_kwh[period] = self._grid_kwh.get(period, 0.0) + max(grid, 0.0) * hours
             self._dirty = True
-        elif hours > Learner.MAX_SAMPLE_HOURS or None in (gauge, grid, load):
+        elif hours > Learner.MAX_SAMPLE_HOURS or None in (gauge, grid, load) or not pv_ok:
             self.learner.sample(0.0, 0.0, 0.0, 0.0, 0.0)       # gap: drop the open stretch
 
         self._update_bank_full(gauge, grid, load)
         self._update_topup(now)
 
-        self.decision = self._decide(now, gauge)
+        # Planning bridges a short gauge dropout with the last reading (learning never does).
+        if gauge is not None:
+            self._last_gauge, self._last_gauge_at = gauge, now
+        plan_gauge = gauge
+        if plan_gauge is None and self._last_gauge_at is not None:
+            if (now - self._last_gauge_at).total_seconds() <= GAUGE_GRACE_MIN * 60:
+                plan_gauge = self._last_gauge
+
+        self.decision = self._decide(now, plan_gauge)
         self._record_shadow(now, gauge)
 
         if c.planner == PLANNER_LEARNED:
-            self._act(now, gauge, grid, load, pv)
-        else:
-            self._commanded = None
+            starting_blind = (plan_gauge is None
+                              and (now - self._first_tick).total_seconds() < GAUGE_GRACE_MIN * 60)
+            if not starting_blind:          # right after a restart sensors can take a while
+                self._act(now, plan_gauge, grid, load, pv)
+        elif self._commanded is not None:
+            # Control was just handed back to the classic planner. Do not leave the
+            # inverter charging or holding until classic's next scheduled run.
+            if self._commanded in (MODE_CHARGE, MODE_HOLD):
+                _LOGGER.info("Planner switched to classic while in %s mode; returning to battery", self._commanded)
+                self.hass.bus.async_fire(EVENT_CHARGE_STOP, {"planner": PLANNER_LEARNED, "reason": "handover to classic"})
+            self._commanded, self._commanded_phase, self._commanded_at = None, None, None
+            self._dirty = True
 
         if now.minute == 0 and self._dirty:
             self.hass.async_create_task(self.async_save())
-        if hasattr(c, "async_update_listeners"):
+        d = self.decision
+        key = (d.mode, d.phase, None if d.target_gauge is None else round(d.target_gauge),
+               None if plan_gauge is None else round(plan_gauge), self.bank_full, self.topup_pending, c.planner)
+        if hasattr(c, "async_update_listeners") and (key != self._published_key or now.minute % PUBLISH_EVERY_MIN == 0):
+            self._published_key = key
             c.async_update_listeners()
 
     def _roll_day(self, now: datetime) -> None:
@@ -258,18 +331,19 @@ class LearnedRuntime:
         if gauge is None:
             return
         if gauge >= 100:
-            self.bank_full = True
+            self.bank_full, self._full_at = True, 100.0
             self._idle_charge_min = 0
             return
-        if gauge < 98:
-            self.bank_full = False
-            self._idle_charge_min = 0
+        if self.bank_full:
+            if gauge < min(98.0, (self._full_at or 100.0) - 2.0):
+                self.bank_full, self._full_at = False, None
             return
-        # 98-99 %: full if a charge was asked for and nothing is going in
-        if self._commanded == MODE_CHARGE and None not in (grid, load) and grid - load < 0.15:
+        # 97-99 %: full if a charge was asked for and nothing has gone in for a while
+        if (gauge >= 97 and self._commanded == MODE_CHARGE and None not in (grid, load)
+                and grid - load < 0.15):
             self._idle_charge_min += 1
             if self._idle_charge_min >= FULL_CONFIRM_MIN:
-                self.bank_full = True
+                self.bank_full, self._full_at = True, gauge
         else:
             self._idle_charge_min = 0
 
@@ -315,6 +389,7 @@ class LearnedRuntime:
             bank_full=self.bank_full,
             topup_pending=self.topup_pending,
             current_mode=self._commanded if c.planner == PLANNER_LEARNED else None,
+            current_phase=self._commanded_phase if c.planner == PLANNER_LEARNED else None,
         )
 
     def _decide(self, now: datetime, gauge: float | None) -> Decision:
@@ -389,31 +464,37 @@ class LearnedRuntime:
             self._fire(d.mode, gauge)
             if self._commanded is not None or d.mode != MODE_DISCHARGE:
                 self.coord._notify("Solarseed - %s" % d.mode.capitalize(), d.reason)
-            self._commanded, self._commanded_at = d.mode, now
-            self._retries, self._alerted = 0, False
+            self._commanded, self._commanded_phase, self._commanded_at = d.mode, d.phase, now
+            self._retries, self._mismatch_min, self._alerted = 0, 0, False
+            self._dirty = True
+            self.hass.async_create_task(self.async_save())
             return
         if self._commanded_at is None or None in (grid, load):
             return
         waited = (now - self._commanded_at).total_seconds() / 60.0
-        if waited < VERIFY_AFTER_MIN * (self._retries + 1):
+        if waited < VERIFY_AFTER_MIN:
             return
         ok = mode_matches(d.mode, gauge, grid, load, pv, self.coord.gauge_floor, self.bank_full)
-        if ok is False:
-            if self._retries < VERIFY_RETRIES:
-                self._retries += 1
-                _LOGGER.warning("Inverter does not look like it is in %s mode; sending the command again (%d/%d)",
-                                d.mode, self._retries, VERIFY_RETRIES)
-                self._fire(d.mode, gauge)
-                self._commanded_at = now
-            elif not self._alerted:
-                self._alerted = True
-                _LOGGER.error("Inverter did not follow the %s command after %d attempts", d.mode, VERIFY_RETRIES)
-                self.coord._notify(
-                    "Solarseed - inverter not responding",
-                    "Asked for %s mode %d times; the power readings do not match. Check the inverter."
-                    % (d.mode, VERIFY_RETRIES + 1))
-        elif ok:
-            self._retries = 0
+        if ok is not False:
+            self._mismatch_min = 0
+            return
+        self._mismatch_min += 1
+        if self._mismatch_min < VERIFY_MISMATCH_MIN:
+            return
+        self._mismatch_min = 0
+        if self._retries < VERIFY_RETRIES:
+            self._retries += 1
+            _LOGGER.warning("Inverter does not look like it is in %s mode; sending the command again (%d/%d)",
+                            d.mode, self._retries, VERIFY_RETRIES)
+            self._fire(d.mode, gauge)
+            self._commanded_at = now
+        elif not self._alerted:
+            self._alerted = True
+            _LOGGER.error("Inverter did not follow the %s command after %d attempts", d.mode, VERIFY_RETRIES)
+            self.coord._notify(
+                "Solarseed - inverter not responding",
+                "Asked for %s mode %d times; the power readings do not match. Check the inverter."
+                % (d.mode, VERIFY_RETRIES + 1))
 
     # -----------------------------------------------------------------
     # Backfill from the recorder
@@ -461,9 +542,16 @@ class LearnedRuntime:
         today = dt_util.now().date()
         rows = [(t, v) for t, v in sorted(load_h.items()) if t.date() < today]
 
-        self.learner = build_from_samples(samples)
-        self.profile = profile_from_hourly(rows, lambda d: is_tou_day(d, c.weekdays_only),
-                                           LoadProfile(default_kw=c.base_load_kw))
+        learner = build_from_samples(samples)
+        profile = profile_from_hourly(rows, lambda d: is_tou_day(d, c.weekdays_only),
+                                      LoadProfile(default_kw=c.base_load_kw))
+        learned_pts = sum(learner.discharge.p) + sum(learner.grid_charge.p)
+        if not samples or learned_pts <= 0:
+            return {"error": "No usable 5-minute statistics for the gauge and power sensors; "
+                             "the existing model was kept.", "samples": len(samples)}
+        self.learner = learner
+        if profile.n_days(True) or profile.n_days(False):
+            self.profile = profile
         await self.async_save()
         self.last_backfill = {
             "samples": len(samples),

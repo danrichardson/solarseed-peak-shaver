@@ -292,3 +292,78 @@ class TestTopUpLifecycle:
         rt2, _, _ = make_runtime(planner="learned")
         rt2.load_state(rt.dump_state())
         assert rt2.topup_pending and rt2._topup_day == "2026-11-20"
+
+
+class TestRobustness:
+    def test_short_gauge_dropout_does_not_change_the_plan(self):
+        rt, coord, world = make_runtime(planner="learned", **{CONF_FULL_CHARGE_MONTHS: "1"})
+        world.values["sensor.gauge"] = (60, "%")
+        world.values["sensor.grid"] = (2400, "W")                # untrained model: it is charging
+        run(rt, datetime(2026, 11, 16, 22, 0), 3)
+        before = list(fired(coord))
+        world.values["sensor.gauge"] = ("unavailable", "%")
+        run(rt, datetime(2026, 11, 16, 22, 3), 5)                # five minutes without a gauge
+        assert fired(coord) == before
+
+    def test_long_gauge_outage_at_night_falls_back_to_charging(self):
+        rt, coord, world = make_runtime(planner="learned", **{CONF_FULL_CHARGE_MONTHS: "1"})
+        world.values["sensor.gauge"] = (60, "%")
+        run(rt, datetime(2026, 11, 16, 22, 0), 3)
+        world.values["sensor.gauge"] = ("unavailable", "%")
+        world.values["sensor.grid"] = (2400, "W")
+        run(rt, datetime(2026, 11, 16, 22, 3), 30)
+        assert fired(coord)[-1] == EVENT_CHARGE_START
+
+    def test_no_command_while_sensors_are_still_coming_up(self):
+        rt, coord, world = make_runtime(planner="learned")
+        world.values["sensor.gauge"] = ("unavailable", "%")
+        run(rt, datetime(2026, 11, 16, 22, 0), 5)                # just restarted, nothing readable yet
+        assert fired(coord) == []
+
+    def test_persistent_failure_returns_the_inverter_to_battery_once(self):
+        rt, coord, world = make_runtime(planner="learned")
+        coord._notify = MagicMock()
+        world.values["sensor.grid"] = (2400, "W")
+        run(rt, datetime(2026, 11, 16, 21, 0), 3)
+        assert fired(coord)[-1] == EVENT_CHARGE_START
+        coord.hass.states.get = MagicMock(side_effect=RuntimeError("boom"))
+        t = datetime(2026, 11, 16, 21, 3)
+        for i in range(30):
+            rt._on_minute(t + timedelta(minutes=i))
+        assert fired(coord).count(EVENT_CHARGE_STOP) == 1
+        assert fired(coord)[-1] == EVENT_CHARGE_STOP
+
+    def test_handing_back_to_classic_releases_a_charge(self):
+        rt, coord, world = make_runtime(planner="learned")
+        world.values["sensor.grid"] = (2400, "W")
+        run(rt, datetime(2026, 11, 16, 21, 0), 3)
+        assert fired(coord)[-1] == EVENT_CHARGE_START
+        coord.entry.data[CONF_PLANNER] = "classic"
+        run(rt, datetime(2026, 11, 16, 21, 3), 3)
+        assert fired(coord)[-1] == EVENT_CHARGE_STOP
+        assert fired(coord).count(EVENT_CHARGE_STOP) == 1
+        assert rt._commanded is None
+
+    def test_commanded_mode_survives_a_restart(self):
+        rt, coord, world = make_runtime(planner="learned")
+        now = datetime.now().replace(second=0, microsecond=0)
+        rt._commanded, rt._commanded_phase, rt._commanded_at = MODE_HOLD, "night", now
+        rt2, _, _ = make_runtime(planner="learned")
+        rt2.load_state(rt.dump_state())
+        assert rt2._commanded == MODE_HOLD and rt2._commanded_phase == "night"
+
+    def test_marginal_readings_cannot_resend_forever(self):
+        rt, coord, world = make_runtime(planner="learned")
+        coord._notify = MagicMock()
+        world.values["sensor.gauge"] = (50, "%")
+
+        def step(i, t):                                       # alternates obeying and not obeying
+            world.values["sensor.grid"] = (2400 if (i // 4) % 2 else 600, "W")
+
+        run(rt, datetime(2026, 11, 16, 21, 0), 600, step)
+        assert fired(coord).count(EVENT_CHARGE_START) <= 4
+
+    def test_sensors_are_not_republished_every_minute(self):
+        rt, coord, world = make_runtime(planner="classic")
+        run(rt, datetime(2026, 11, 16, 10, 1), 30)
+        assert coord.async_update_listeners.call_count <= 8

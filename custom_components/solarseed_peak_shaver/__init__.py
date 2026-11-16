@@ -33,10 +33,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await coordinator.async_config_entry_first_refresh()
 
     # Learned model and planner. It only observes unless the planner option is set to
-    # "learned", and a failure here must never stop the classic planner.
+    # "learned", and a failure here must never stop the classic planner. The object is
+    # created now so the sensors can read it; its timer starts after the platforms load.
     try:
         coordinator.learned = LearnedRuntime(hass, coordinator)
-        coordinator.learned.setup()
+        coordinator.learned.load_state(store.learning)
     except Exception:  # noqa: BLE001
         _LOGGER.exception("Learned planner could not start; continuing with the classic planner only")
         coordinator.learned = None
@@ -48,6 +49,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Set up scheduled recalculations and state listeners
     coordinator.setup_listeners()
+    if coordinator.learned is not None:
+        try:
+            coordinator.learned.setup()
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Learned planner timer could not start; continuing with the classic planner only")
+            coordinator.learned = None
 
     # Register recalculate service (once, for any number of config entries)
     if not hass.services.has_service(DOMAIN, SERVICE_RECALCULATE):

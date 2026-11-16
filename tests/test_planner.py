@@ -88,8 +88,20 @@ class TestPeakAndMidPeak:
         ln, lp = trained()
         short_now = decide(inputs("2026-11-16T12:00", 20.0), ln, lp)
         assert short_now.mode == MODE_DISCHARGE          # too early to start
-        going = decide(inputs("2026-11-16T12:00", 20.0, current_mode=MODE_CHARGE), ln, lp)
-        assert going.mode == MODE_CHARGE                 # but a charge in progress continues
+        going = decide(inputs("2026-11-16T12:00", 20.0, current_mode=MODE_CHARGE, current_phase="mid-peak"),
+                       ln, lp)
+        assert going.mode == MODE_CHARGE                 # but a mid-peak charge in progress continues
+
+    def test_night_charge_stops_on_the_midpeak_edge(self):
+        ln, lp = trained()
+        # 07:00 with a night charge still running and plenty on board for peak: stop, do not carry on
+        d = decide(inputs("2026-03-17T07:00", 70.0, current_mode=MODE_CHARGE, current_phase="night"), ln, lp)
+        assert d.mode == MODE_DISCHARGE
+
+    def test_below_the_floor_there_is_no_energy(self):
+        ln, lp = trained()
+        d = decide(inputs("2026-11-16T10:00", 0.0, floor=3.0), ln, lp)
+        assert d.energy_remaining_kwh == 0.0
 
     def test_a_forecast_alone_never_starts_a_charge(self):
         ln, lp = trained()

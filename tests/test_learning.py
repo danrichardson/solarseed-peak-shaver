@@ -182,7 +182,16 @@ class TestLearner:
         for _ in range(6):
             self._run(ln, range(10, 61), 1.0, 0.6, 0.0, 20)       # throttled, below FULL_RATE_KW
         assert ln.grid_charge.per_pt(6) == pytest.approx(0.4 * 20 / 60, abs=0.01)
-        assert ln.grid_charge.hours_per_pt(6) < prior_h            # no hours added, weight grew
+        assert ln.grid_charge.hours_per_pt(6) == pytest.approx(prior_h)   # timing untouched by a slow charge
+
+    def test_slow_charges_do_not_dilute_learned_timing(self):
+        ln = Learner()
+        for _ in range(4):
+            self._run(ln, range(10, 61), 2.4, 0.6, 0.0, 5)        # full rate: 1/12 h per point
+        fast = ln.grid_charge.hours_per_pt(6)
+        for _ in range(20):
+            self._run(ln, range(10, 61), 1.0, 0.6, 0.0, 20)       # many throttled charges
+        assert ln.grid_charge.hours_per_pt(6) == pytest.approx(fast, rel=0.02)
 
     def test_solar_charge_has_its_own_curve(self):
         ln = Learner()
@@ -221,3 +230,43 @@ class TestLearner:
         assert ln2.discharge.energy_between(40, 80) == pytest.approx(ln.discharge.energy_between(40, 80), rel=1e-3)
         assert ln2.grid_charge.hours_between(40, 80) == pytest.approx(ln.grid_charge.hours_between(40, 80), rel=1e-3)
         assert Learner.from_dict(None).discharge.energy_between(0, 100) == pytest.approx(23.5)
+
+
+class TestBackfillBuilders:
+    def _rows(self, start, gauges, minutes=5, grid=0.0, load=0.6):
+        from datetime import timedelta
+        return [(start + timedelta(minutes=minutes * i), g, grid, load, 0.0, minutes / 60.0)
+                for i, g in enumerate(gauges)]
+
+    def test_builds_a_discharge_curve(self):
+        from datetime import datetime
+        from custom_components.solarseed_peak_shaver.learning import build_from_samples
+
+        # 0.6 kW, one point every 15 minutes = 0.15 kWh per point
+        gauges = [80 - i / 3.0 for i in range(120)]
+        ln = build_from_samples(self._rows(datetime(2026, 11, 10, 8, 0), gauges))
+        assert ln.discharge.e[12] / ln.discharge.p[12] == pytest.approx(0.15, abs=0.01)
+
+    def test_a_gap_in_the_rows_is_not_credited(self):
+        from datetime import datetime, timedelta
+        from custom_components.solarseed_peak_shaver.learning import build_from_samples
+
+        gauges = [80 - i / 3.0 for i in range(60)]
+        rows = self._rows(datetime(2026, 11, 10, 8, 0), gauges)
+        # two hours missing, during which the gauge fell 20 points that were never measured
+        later = [(w + timedelta(hours=2), g - 20, a, b, c, h) for (w, g, a, b, c, h) in rows[30:]]
+        ln = build_from_samples(rows[:30] + later)
+        for i in range(ln.discharge.n):
+            if ln.discharge.p[i] > 0:
+                assert ln.discharge.e[i] / ln.discharge.p[i] == pytest.approx(0.15, abs=0.02)
+
+    def test_profile_from_hourly(self):
+        from datetime import datetime, timedelta
+        from custom_components.solarseed_peak_shaver.learning import profile_from_hourly
+
+        start = datetime(2026, 11, 9, 0, 0)          # a Monday
+        rows = [(start + timedelta(hours=i), 0.5 if (start + timedelta(hours=i)).weekday() < 5 else 0.2)
+                for i in range(24 * 7)]
+        lp = profile_from_hourly(rows, lambda d: d.weekday() < 5)
+        assert lp.n_days(True) == 5 and lp.n_days(False) == 2
+        assert lp.mean(True, 10) == pytest.approx(0.5) and lp.mean(False, 10) == pytest.approx(0.2)
