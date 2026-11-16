@@ -18,38 +18,55 @@ from .const import (
     CONF_BATTERY_CAPACITY,
     CONF_BATTERY_SOC_ENTITY,
     CONF_CHARGE_THRESHOLD,
+    CONF_FULL_CHARGE_MONTHS,
+    CONF_GAUGE_ENTITY,
+    CONF_GAUGE_FLOOR,
+    CONF_GRID_POWER_ENTITY,
+    CONF_LOAD_POWER_ENTITY,
+    CONF_LOAD_QUANTILE,
     CONF_MIDPEAK_START,
     CONF_NOTIFICATIONS_ENABLED,
     CONF_NOTIFY_ENTITY,
     CONF_PEAK_END,
     CONF_PEAK_START,
+    CONF_PLANNER,
+    CONF_PV_POWER_ENTITY,
     CONF_MIN_SAFE_SOC,
     CONF_SCHEDULE_HOURS,
     CONF_SEASONAL_MONTHS,
     CONF_SEASONAL_PRESERVATION,
     CONF_SOLAR_ACTUAL_ENTITY,
+    CONF_SOLAR_CONFIDENCE,
     CONF_SOLAR_FORECAST_ENTITY,
+    CONF_SOLAR_FORECAST_TOMORROW_ENTITY,
     CONF_VERBOSE_LOGGING,
     CONF_WEEKDAYS_ONLY,
     DEFAULT_BASE_LOAD,
     DEFAULT_BATTERY_CAPACITY,
     DEFAULT_CHARGE_THRESHOLD,
+    DEFAULT_FULL_CHARGE_MONTHS,
+    DEFAULT_GAUGE_FLOOR,
+    DEFAULT_LOAD_QUANTILE,
     DEFAULT_MIDPEAK_START,
     DEFAULT_NOTIFICATIONS_ENABLED,
     DEFAULT_NOTIFY_ENTITY,
     DEFAULT_PEAK_END,
     DEFAULT_PEAK_START,
+    DEFAULT_PLANNER,
     DEFAULT_MIN_SAFE_SOC,
     DEFAULT_SCHEDULE_HOURS,
     DEFAULT_SEASONAL_MONTHS,
     DEFAULT_SEASONAL_PRESERVATION,
     DEFAULT_SOLAR_ACTUAL_ENTITY,
+    DEFAULT_SOLAR_CONFIDENCE,
     DEFAULT_VERBOSE_LOGGING,
     DEFAULT_WEEKDAYS_ONLY,
     DOMAIN,
     EVENT_CHARGE_START,
     EVENT_CHARGE_STOP,
     EVENT_PRESERVE_START,
+    PLANNER_CLASSIC,
+    PLANNER_LEARNED,
     SENSOR_BATTERY_AT_PEAK,
     SENSOR_CHARGE_BELOW,
     SENSOR_CHARGE_NEEDED,
@@ -92,6 +109,9 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         self._daily_min_soc: float = float("inf")
         self._daily_min_tracking: bool = False
         self.last_daily_scorecard: dict = {}
+
+        # Learned model + planner (0.7.0). Created in async_setup_entry; None in old tests.
+        self.learned: Any = None
 
     # -----------------------------------------------------------------
     # Config accessors
@@ -188,6 +208,75 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
     @property
     def solar_actual_entity(self) -> str:
         return str(self._cfg(CONF_SOLAR_ACTUAL_ENTITY, DEFAULT_SOLAR_ACTUAL_ENTITY))
+
+    # --- Learned planner settings (all optional) ---
+    @property
+    def planner(self) -> str:
+        """Which planner controls the inverter: "classic" or "learned"."""
+        val = str(self._cfg(CONF_PLANNER, DEFAULT_PLANNER) or DEFAULT_PLANNER).strip().lower()
+        return PLANNER_LEARNED if val == PLANNER_LEARNED else PLANNER_CLASSIC
+
+    def _entity_cfg(self, key: str) -> str:
+        return str(self._cfg(key, "") or "").strip()
+
+    @property
+    def gauge_entity(self) -> str:
+        return self._entity_cfg(CONF_GAUGE_ENTITY)
+
+    @property
+    def load_power_entity(self) -> str:
+        return self._entity_cfg(CONF_LOAD_POWER_ENTITY)
+
+    @property
+    def grid_power_entity(self) -> str:
+        return self._entity_cfg(CONF_GRID_POWER_ENTITY)
+
+    @property
+    def pv_power_entity(self) -> str:
+        return self._entity_cfg(CONF_PV_POWER_ENTITY)
+
+    @property
+    def solar_forecast_tomorrow_entity_resolved(self) -> str:
+        """Tomorrow's forecast entity: the configured one, else guessed from today's."""
+        explicit = self._entity_cfg(CONF_SOLAR_FORECAST_TOMORROW_ENTITY)
+        if explicit:
+            return explicit
+        today = self.solar_forecast_entity
+        if "today" in today:
+            guess = today.replace("today", "tomorrow")
+            if self.hass.states.get(guess) is not None:
+                return guess
+        return ""
+
+    @property
+    def full_charge_months(self) -> list[int]:
+        raw = self._cfg(CONF_FULL_CHARGE_MONTHS, DEFAULT_FULL_CHARGE_MONTHS)
+        if isinstance(raw, list):
+            return [int(m) for m in raw]
+        if isinstance(raw, str):
+            try:
+                return [int(m.strip()) for m in raw.split(",") if m.strip()]
+            except ValueError:
+                return list(DEFAULT_FULL_CHARGE_MONTHS)
+        return list(DEFAULT_FULL_CHARGE_MONTHS)
+
+    def _num_cfg(self, key: str, default: float, lo: float, hi: float) -> float:
+        try:
+            return min(max(float(self._cfg(key, default)), lo), hi)
+        except (TypeError, ValueError):
+            return default
+
+    @property
+    def load_quantile(self) -> float:
+        return self._num_cfg(CONF_LOAD_QUANTILE, DEFAULT_LOAD_QUANTILE, 0.0, 1.0)
+
+    @property
+    def solar_confidence(self) -> float:
+        return self._num_cfg(CONF_SOLAR_CONFIDENCE, DEFAULT_SOLAR_CONFIDENCE, 0.0, 1.5)
+
+    @property
+    def gauge_floor(self) -> float:
+        return self._num_cfg(CONF_GAUGE_FLOOR, DEFAULT_GAUGE_FLOOR, 0.0, 50.0)
 
     # -----------------------------------------------------------------
     # Notifications
@@ -349,7 +438,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             self._daily_min_soc = min(self._daily_min_soc, current_soc)
 
         # Check for charge target reached
-        if not self._charging_active:
+        if not self._charging_active or self.planner == PLANNER_LEARNED:
             return
 
         if self.data is None:
@@ -408,6 +497,9 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
 
         if self.weekdays_only and now.weekday() >= 5:
             return
+
+        if self.planner == PLANNER_LEARNED:
+            return  # the learned planner decides when to hold
 
         _LOGGER.info(
             "Off-peak battery hold triggered (month %d, %d:%02d)",
@@ -750,6 +842,13 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             "prediction_snapshots_count": len(self.prediction_snapshots),
         }
 
+        # What the learned planner thought and saw today (new keys only).
+        if getattr(self, "learned", None) is not None:
+            try:
+                scorecard["learned"] = self.learned.daily_summary()
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception("Could not add learned-planner summary to the scorecard")
+
         self.last_daily_scorecard = scorecard
 
         # Persist
@@ -823,8 +922,11 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             "\n".join(lines),
         )
 
-    def _get_hourly_solar(self) -> dict[int, float]:
+    def _get_hourly_solar(self, entity_id: str | None = None, quiet: bool = False) -> dict[int, float]:
         """Parse hourly solar forecast into {hour: kWh}.
+
+        Reads the configured forecast entity, or `entity_id` if given (for example
+        tomorrow's forecast). An empty `entity_id` returns {}.
 
         Supports Solcast (detailedHourly / detailedForecast attributes) and
         Forecast.Solar (compatible forecast format).
@@ -832,10 +934,14 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         detailedHourly values are kWh per hour (use directly).
         detailedForecast values are kW at 30-min intervals (multiply by 0.5).
         """
-        state = self.hass.states.get(self.solar_forecast_entity)
+        if entity_id is None:
+            entity_id = self.solar_forecast_entity
+        if not entity_id:
+            return {}
+        state = self.hass.states.get(entity_id)
         if state is None:
-            _LOGGER.warning(
-                "Solar forecast entity %s not found", self.solar_forecast_entity
+            (_LOGGER.debug if quiet else _LOGGER.warning)(
+                "Solar forecast entity %s not found", entity_id
             )
             return {}
 
@@ -860,7 +966,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         if not forecast_data:
             _LOGGER.debug(
                 "No forecast attributes found on %s. Available attributes: %s",
-                self.solar_forecast_entity,
+                entity_id,
                 list(state.attributes.keys()),
             )
 
@@ -1075,6 +1181,12 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         )
 
         # --- Fire events and notify ---
+        if self.planner == PLANNER_LEARNED:
+            # The learned planner drives the inverter. Keep computing the classic
+            # numbers for comparison, but fire nothing.
+            self._charging_active = False
+            return result
+
         solar_forecast_state = self.hass.states.get(self.solar_forecast_entity)
         solar_forecast_val = (
             self._safe_float(solar_forecast_state.state)

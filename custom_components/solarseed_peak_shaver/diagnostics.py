@@ -90,4 +90,24 @@ async def async_get_config_entry_diagnostics(
             ),
         }
 
+    runtime = getattr(coordinator, "learned", None) if coordinator else None
+    if runtime is not None:
+        result["learned"] = {
+            "planner_in_control": coordinator.planner,
+            "power_sensors_configured": runtime.sensors_configured,
+            "decision": runtime.decision.as_dict() if runtime.decision else None,
+            "bank_full": runtime.bank_full,
+            "weekly_topup_pending": runtime.topup_pending,
+            "curves": runtime.curve_table(),
+            "load_profile_tou_kw": {
+                str(h): round(runtime.profile.mean(True, h), 3) for h in range(24)
+            },
+            "load_history_days": {
+                "tou": runtime.profile.n_days(True),
+                "other": runtime.profile.n_days(False),
+            },
+            "today": runtime.daily_summary(),
+            "last_backfill": runtime.last_backfill,
+        }
+
     return result

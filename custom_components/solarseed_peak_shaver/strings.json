@@ -86,6 +86,12 @@
       },
       "rolling_score": {
         "name": "Algorithm Score"
+      },
+      "learned_energy_remaining": {
+        "name": "Learned Energy Remaining"
+      },
+      "learned_plan": {
+        "name": "Learned Plan"
       }
     }
   },
@@ -101,6 +107,10 @@
     "export_history": {
       "name": "Export History",
       "description": "Export performance history as CSV for statistical analysis."
+    },
+    "backfill_learning": {
+      "name": "Backfill Learned Model",
+      "description": "Rebuild the learned battery curves and load profile from recorder statistics, so the learned planner does not start cold."
     }
   },
   "options": {
@@ -121,7 +131,28 @@
           "seasonal_preservation": "Enable off-peak battery hold",
           "seasonal_months": "Hold months",
           "verbose_logging": "Verbose logging",
-          "solar_actual_entity": "Solar production sensor"
+          "solar_actual_entity": "Solar production sensor",
+          "planner": "Planner in control",
+          "gauge_entity": "Battery gauge sensor (percent)",
+          "load_power_entity": "House load power sensor (inverter AC output)",
+          "grid_power_entity": "Grid power sensor (inverter AC input)",
+          "pv_power_entity": "Solar power sensor",
+          "solar_forecast_tomorrow_entity": "Solar forecast sensor for tomorrow",
+          "full_charge_months": "Months that charge to full every TOU night",
+          "load_quantile": "Plan for this share of days (load quantile)",
+          "solar_confidence": "Share of forecast solar to count on",
+          "gauge_floor_pct": "Gauge reading at which the inverter hands over to grid"
+        },
+        "data_description": {
+          "planner": "classic: the original planner controls the inverter and the learned planner only reports. learned: the learned planner controls the inverter.",
+          "gauge_entity": "The percent the inverter itself reports. Leave empty to derive it from the battery SOC sensor and the capacity.",
+          "load_power_entity": "Needed for learning. Power the inverter delivers to the house.",
+          "grid_power_entity": "Needed for learning. Power the inverter takes from the grid.",
+          "pv_power_entity": "Optional. Solar power into the inverter.",
+          "solar_forecast_tomorrow_entity": "Optional. Guessed from today's forecast sensor when empty.",
+          "full_charge_months": "Comma-separated month numbers, for example 11,12,1.",
+          "load_quantile": "0.8 means the plan covers the load of 8 days out of 10.",
+          "solar_confidence": "0.7 means only 70 percent of the forecast is relied on."
         }
       }
     }

@@ -23,6 +23,8 @@ from .const import (
     SENSOR_CHARGE_NEEDED,
     SENSOR_DAILY_GRADE,
     SENSOR_EFFECTIVE_BASE_LOAD,
+    SENSOR_LEARNED_ENERGY,
+    SENSOR_LEARNED_PLAN,
     SENSOR_PREDICTION_ACCURACY,
     SENSOR_PROJECTED_MIN,
     SENSOR_ROLLING_SCORE,
@@ -87,6 +89,18 @@ SENSOR_DESCRIPTIONS: dict[str, dict] = {
         "icon": "mdi:chart-line",
         "device_class": None,
         "state_class": SensorStateClass.MEASUREMENT,
+        "unit": None,
+    },
+    # --- Learned planner sensors ---
+    SENSOR_LEARNED_ENERGY: {
+        "name": "Learned Energy Remaining",
+        "icon": "mdi:battery-heart-variant",
+    },
+    SENSOR_LEARNED_PLAN: {
+        "name": "Learned Plan",
+        "icon": "mdi:head-cog-outline",
+        "device_class": None,
+        "state_class": None,
         "unit": None,
     },
 }
@@ -178,6 +192,15 @@ class PeakShaverSensor(CoordinatorEntity[PeakShaverCoordinator], SensorEntity):
                 return coord.store.rolling_score(days=7)
             return None
 
+        if self._sensor_key in (SENSOR_LEARNED_ENERGY, SENSOR_LEARNED_PLAN):
+            decision = getattr(getattr(coord, "learned", None), "decision", None)
+            if decision is None:
+                return None
+            if self._sensor_key == SENSOR_LEARNED_PLAN:
+                return decision.mode
+            val = decision.energy_remaining_kwh
+            return round(val, 2) if val is not None else None
+
         # Standard sensors from coordinator data dict
         if coord.data is None:
             return None
@@ -260,6 +283,36 @@ class PeakShaverSensor(CoordinatorEntity[PeakShaverCoordinator], SensorEntity):
                 "recent_grades": coord.store.recent_grades(7),
                 "7_day_score": coord.store.rolling_score(7),
                 "30_day_score": coord.store.rolling_score(30),
+            }
+
+        runtime = getattr(coord, "learned", None)
+        if runtime is not None and self._sensor_key == SENSOR_LEARNED_PLAN:
+            decision = runtime.decision
+            if decision is None:
+                return None
+            attrs = decision.as_dict()
+            attrs.pop("mode", None)
+            attrs.pop("energy_remaining_kwh", None)
+            attrs["planner_in_control"] = coord.planner
+            attrs["bank_full"] = runtime.bank_full
+            attrs["weekly_topup_pending"] = runtime.topup_pending
+            attrs["power_sensors_configured"] = runtime.sensors_configured
+            return attrs
+
+        if runtime is not None and self._sensor_key == SENSOR_LEARNED_ENERGY:
+            ln, floor = runtime.learner, coord.gauge_floor
+            return {
+                "floor_to_full_kwh": round(ln.discharge.energy_between(floor, 100.0), 1),
+                "kwh_per_percent_by_band": {
+                    "%d-%d" % (lo, lo + 20): round(ln.discharge.energy_between(lo, lo + 20) / 20.0, 2)
+                    for lo in range(0, 100, 20)
+                },
+                "discharge_points_learned": round(sum(ln.discharge.p)),
+                "charge_points_learned": round(sum(ln.grid_charge.p)),
+                "tou_days_of_load_history": runtime.profile.n_days(True),
+                "expected_load_rate_window_kwh": round(
+                    runtime.profile.window_mean(True, coord.midpeak_start, coord.peak_end), 1
+                ),
             }
 
         return None

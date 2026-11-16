@@ -144,6 +144,40 @@ The integration creates five sensors under a "Solarseed Peak Shaver" device:
 
 **Charge Below** answers the question: "how low would my battery have to be *right now* before the algorithm starts charging?" It's calculated as your current SOC minus the headroom between the projected minimum and the safety floor. If your battery is above this value, you're safe. If it drops below, the next calculation will trigger grid charging. It's a quick way to gauge how much margin you have on any given day.
 
+### Learned planner (0.7.0, optional)
+
+The original planner assumes one percent of battery is worth `capacity / 100` kWh and
+that the house draws one fixed base load. On a real system both can be well off, and
+both drift. From 0.7.0 the integration can measure them instead.
+
+Open the integration's **Configure** dialog and set:
+
+| Setting | What to pick |
+|---------|--------------|
+| **Battery gauge sensor (percent)** | The percent your inverter reports. Optional; derived from SOC and capacity if empty |
+| **House load power sensor** | Power the inverter delivers to the house |
+| **Grid power sensor** | Power the inverter takes from the grid |
+| **Solar power sensor** | Optional |
+| **Planner in control** | Leave on `classic` at first |
+
+With the planner on `classic` nothing about control changes. Two new sensors show what
+the learned planner would do and why:
+
+| Sensor | What it tells you |
+|--------|-------------------|
+| **Learned Plan** | `charge`, `hold` or `discharge`, with the reason and target as attributes |
+| **Learned Energy Remaining** | kWh the battery will deliver before the inverter hands over to the grid, from the learned curve |
+
+Call `solarseed_peak_shaver.backfill_learning` once to train it from your recorder
+history. When its plans look right for a few days, switch **Planner in control** to
+`learned`. It then drives the same three events, with these rules: never charge in the
+peak window; charge in mid-peak only to cover the peak window and finish before it;
+time the overnight charge to end when mid-peak starts and hold the battery until then;
+in the months you list as "full", charge every night before a TOU day until the inverter
+stops. Switching back to `classic` is the same one setting.
+
+Details: [docs/how-it-works.md](docs/how-it-works.md).
+
 ## On-demand recalculation
 
 You don't have to wait for the next scheduled run. There are two ways to trigger the calculation immediately:

@@ -71,6 +71,55 @@ solar forecast error > 20%, up to -15 for min-SOC prediction error > 2 kWh, up t
 "unnecessary" charge (> 2 kWh charged beyond the 03:00 run's `charge_needed`). Grade A-F.
 The primary prediction scored is the *first* snapshot of the day (normally 03:00).
 
+## Learned planner (0.7.0)
+
+A second planner lives beside the one described above. Code: `learning.py` (what it
+learns), `planner.py` (the rules), `learned_runtime.py` (the Home Assistant glue). Both
+planners always compute; the `planner` option decides which one fires events.
+
+- `classic` (default): everything above is unchanged. The learned planner only reports,
+  through the `Learned Plan` and `Learned Energy Remaining` sensors and a `learned` block
+  in each daily scorecard. This is shadow mode.
+- `learned`: the learned planner fires the same three events and the classic planner
+  fires nothing (it still updates its sensors for comparison).
+
+**What it learns**, once a minute, from the gauge and three optional power sensors
+(house load, grid input, solar):
+
+- Discharge curve: AC kWh delivered per gauge percent, in 5-point bands.
+- Grid-charge curve: net AC kWh absorbed per percent, and hours per percent at full rate.
+- Solar-charge curve: PV kWh per percent.
+- Load profile: kWh per hour of day over the trailing 14 TOU days (and 14 other days).
+
+Curves forget with a 30-day half-life, so they follow drift and hardware changes. State
+is saved hourly in the same storage file under `learning` and survives a restart. The
+`backfill_learning` service rebuilds all of it from recorder statistics.
+
+**The rules**, in order (see the docstring of `planner.py`):
+
+1. Peak window: on battery. Never charge.
+2. Mid-peak: on battery. Charge only if the battery will not cover the peak window, as
+   late as will still finish by peak start.
+3. Night before a TOU day: in the "full" months charge from peak end until the inverter
+   ends the charge, then hold until mid-peak start. In other months size the charge from
+   the learned load (a high percentile) and discounted forecast solar, time it to finish
+   at mid-peak start, and hold before and after.
+4. Weekly top-up to full after the last TOU day of the week, in the "full" months, for
+   at most 24 hours.
+5. Otherwise on battery.
+
+A forecast update changes numbers inside these rules and never starts a charge. If the
+model is untrained or the gauge is unreadable, the night rule charges to full.
+
+**Checking the inverter obeyed.** Three minutes after a command the runtime compares the
+power sensors with the mode it asked for (charging means grid input well above house
+load, and so on). If they disagree it sends the event again, up to three times, then
+notifies.
+
+**Events map to modes** exactly as before: `charge_start` = charge, `charge_stop` = on
+battery, `preserve_start` = hold. Event data from the learned planner carries `planner`,
+`gauge`, `target_gauge` and `reason`.
+
 ## State that does not survive an HA restart
 
 Prediction snapshots, SOC checkpoints, hourly solar actuals, charge events, daily min, and

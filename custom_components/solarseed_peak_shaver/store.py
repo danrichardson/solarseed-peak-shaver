@@ -35,13 +35,23 @@ class PeakShaverStore:
 
     async def async_save(self) -> None:
         """Save data to disk, pruning to MAX_DAYS."""
-        self._data["days"] = self._data["days"][-MAX_DAYS:]
+        self._data["days"] = self._data.get("days", [])[-MAX_DAYS:]
         await self._store.async_save(self._data)
 
     @property
     def days(self) -> list[dict]:
         """Return all stored daily scorecards."""
         return self._data.get("days", [])
+
+    @property
+    def learning(self) -> dict[str, Any]:
+        """State of the learned model (curves, load profile). Empty until first saved."""
+        val = self._data.get("learning")
+        return val if isinstance(val, dict) else {}
+
+    @learning.setter
+    def learning(self, value: dict[str, Any]) -> None:
+        self._data["learning"] = value
 
     def add_scorecard(self, scorecard: dict) -> None:
         """Add or replace a daily scorecard."""

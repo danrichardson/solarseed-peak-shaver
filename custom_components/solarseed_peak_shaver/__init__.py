@@ -7,8 +7,15 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 
-from .const import DOMAIN, SERVICE_EXPORT_HISTORY, SERVICE_PERFORMANCE_REPORT, SERVICE_RECALCULATE
+from .const import (
+    DOMAIN,
+    SERVICE_BACKFILL_LEARNING,
+    SERVICE_EXPORT_HISTORY,
+    SERVICE_PERFORMANCE_REPORT,
+    SERVICE_RECALCULATE,
+)
 from .coordinator import PeakShaverCoordinator
+from .learned_runtime import LearnedRuntime
 from .store import PeakShaverStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -24,6 +31,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     coordinator = PeakShaverCoordinator(hass, entry, store)
 
     await coordinator.async_config_entry_first_refresh()
+
+    # Learned model and planner. It only observes unless the planner option is set to
+    # "learned", and a failure here must never stop the classic planner.
+    try:
+        coordinator.learned = LearnedRuntime(hass, coordinator)
+        coordinator.learned.setup()
+    except Exception:  # noqa: BLE001
+        _LOGGER.exception("Learned planner could not start; continuing with the classic planner only")
+        coordinator.learned = None
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = coordinator
@@ -104,6 +120,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             supports_response=SupportsResponse.ONLY,
         )
 
+    # Register the learned-model backfill service
+    if not hass.services.has_service(DOMAIN, SERVICE_BACKFILL_LEARNING):
+
+        async def handle_backfill(call: ServiceCall) -> dict:
+            """Rebuild the learned model from recorder statistics."""
+            days = int(call.data.get("days", 10))
+            for coord in hass.data[DOMAIN].values():
+                if isinstance(coord, PeakShaverCoordinator) and coord.learned is not None:
+                    try:
+                        return await coord.learned.async_backfill(days=days)
+                    except Exception as err:  # noqa: BLE001
+                        _LOGGER.exception("Backfill failed")
+                        return {"error": str(err)}
+            return {"error": "Learned planner is not running"}
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_BACKFILL_LEARNING,
+            handle_backfill,
+            supports_response=SupportsResponse.ONLY,
+        )
+
     return True
 
 
@@ -111,6 +149,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     coordinator: PeakShaverCoordinator = hass.data[DOMAIN][entry.entry_id]
     coordinator.remove_listeners()
+    if coordinator.learned is not None:
+        try:
+            coordinator.learned.remove()
+            await coordinator.learned.async_save()
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Could not save the learned model on unload")
 
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         hass.data[DOMAIN].pop(entry.entry_id)
@@ -120,5 +164,6 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_remove(DOMAIN, SERVICE_RECALCULATE)
         hass.services.async_remove(DOMAIN, SERVICE_PERFORMANCE_REPORT)
         hass.services.async_remove(DOMAIN, SERVICE_EXPORT_HISTORY)
+        hass.services.async_remove(DOMAIN, SERVICE_BACKFILL_LEARNING)
 
     return unload_ok

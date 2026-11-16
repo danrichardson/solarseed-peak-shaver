@@ -15,35 +15,52 @@ from .const import (
     CONF_BATTERY_CAPACITY,
     CONF_BATTERY_SOC_ENTITY,
     CONF_CHARGE_THRESHOLD,
+    CONF_FULL_CHARGE_MONTHS,
+    CONF_GAUGE_ENTITY,
+    CONF_GAUGE_FLOOR,
+    CONF_GRID_POWER_ENTITY,
+    CONF_LOAD_POWER_ENTITY,
+    CONF_LOAD_QUANTILE,
     CONF_MIDPEAK_START,
     CONF_NOTIFICATIONS_ENABLED,
     CONF_NOTIFY_ENTITY,
     CONF_PEAK_END,
     CONF_PEAK_START,
+    CONF_PLANNER,
+    CONF_PV_POWER_ENTITY,
     CONF_MIN_SAFE_SOC,
     CONF_SCHEDULE_HOURS,
     CONF_SEASONAL_MONTHS,
     CONF_SEASONAL_PRESERVATION,
     CONF_SOLAR_ACTUAL_ENTITY,
+    CONF_SOLAR_CONFIDENCE,
     CONF_SOLAR_FORECAST_ENTITY,
+    CONF_SOLAR_FORECAST_TOMORROW_ENTITY,
     CONF_VERBOSE_LOGGING,
     CONF_WEEKDAYS_ONLY,
     DEFAULT_BASE_LOAD,
     DEFAULT_BATTERY_CAPACITY,
     DEFAULT_CHARGE_THRESHOLD,
+    DEFAULT_FULL_CHARGE_MONTHS,
+    DEFAULT_GAUGE_FLOOR,
+    DEFAULT_LOAD_QUANTILE,
     DEFAULT_MIDPEAK_START,
     DEFAULT_NOTIFICATIONS_ENABLED,
     DEFAULT_PEAK_END,
     DEFAULT_PEAK_START,
+    DEFAULT_PLANNER,
     DEFAULT_MIN_SAFE_SOC,
     DEFAULT_SCHEDULE_HOURS,
     DEFAULT_SEASONAL_MONTHS,
     DEFAULT_SEASONAL_PRESERVATION,
     DEFAULT_SOLAR_ACTUAL_ENTITY,
+    DEFAULT_SOLAR_CONFIDENCE,
     DEFAULT_SOLAR_FORECAST_ENTITY,
     DEFAULT_VERBOSE_LOGGING,
     DEFAULT_WEEKDAYS_ONLY,
     DOMAIN,
+    PLANNER_CLASSIC,
+    PLANNER_LEARNED,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -386,7 +403,93 @@ class PeakShaverOptionsFlow(config_entries.OptionsFlow):
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
                 ),
+                # --- Learned planner (all optional) ---
+                vol.Required(
+                    CONF_PLANNER,
+                    default=current.get(CONF_PLANNER, DEFAULT_PLANNER),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[PLANNER_CLASSIC, PLANNER_LEARNED],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+                vol.Optional(
+                    CONF_GAUGE_ENTITY,
+                    description={"suggested_value": current.get(CONF_GAUGE_ENTITY, "")},
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional(
+                    CONF_LOAD_POWER_ENTITY,
+                    description={"suggested_value": current.get(CONF_LOAD_POWER_ENTITY, "")},
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional(
+                    CONF_GRID_POWER_ENTITY,
+                    description={"suggested_value": current.get(CONF_GRID_POWER_ENTITY, "")},
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional(
+                    CONF_PV_POWER_ENTITY,
+                    description={"suggested_value": current.get(CONF_PV_POWER_ENTITY, "")},
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Optional(
+                    CONF_SOLAR_FORECAST_TOMORROW_ENTITY,
+                    description={
+                        "suggested_value": current.get(CONF_SOLAR_FORECAST_TOMORROW_ENTITY, "")
+                    },
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Required(
+                    CONF_FULL_CHARGE_MONTHS,
+                    default=_as_csv(
+                        current.get(CONF_FULL_CHARGE_MONTHS, DEFAULT_FULL_CHARGE_MONTHS)
+                    ),
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(
+                        type=selector.TextSelectorType.TEXT,
+                    )
+                ),
+                vol.Required(
+                    CONF_LOAD_QUANTILE,
+                    default=current.get(CONF_LOAD_QUANTILE, DEFAULT_LOAD_QUANTILE),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0.5, max=0.99, step=0.01,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_SOLAR_CONFIDENCE,
+                    default=current.get(CONF_SOLAR_CONFIDENCE, DEFAULT_SOLAR_CONFIDENCE),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0.0, max=1.5, step=0.05,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_GAUGE_FLOOR,
+                    default=current.get(CONF_GAUGE_FLOOR, DEFAULT_GAUGE_FLOOR),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=50, step=1, unit_of_measurement="%",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
             }
         )
 
         return self.async_show_form(step_id="init", data_schema=data_schema)
+
+
+def _as_csv(value: Any) -> str:
+    """Render a list setting as the comma-separated text the form edits."""
+    if isinstance(value, (list, tuple)):
+        return ",".join(str(v) for v in value)
+    return str(value)

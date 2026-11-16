@@ -40,3 +40,18 @@ export_history:
           options:
             - daily
             - hourly_solar
+
+backfill_learning:
+  name: Backfill Learned Model
+  description: Rebuild the learned battery curves and load profile from recorder statistics. Returns a summary as a service response.
+  fields:
+    days:
+      name: Days
+      description: Days of 5-minute statistics to learn the battery curves from (the recorder keeps about 10).
+      required: false
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 30
+          step: 1
