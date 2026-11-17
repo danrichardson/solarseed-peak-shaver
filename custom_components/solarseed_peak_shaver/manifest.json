@@ -1,13 +1,17 @@
 {
   "domain": "solarseed_peak_shaver",
   "name": "Solarseed Peak Shaver",
-  "version": "0.7.0",
-  "codeowners": ["@danrichardson"],
+  "after_dependencies": [
+    "recorder"
+  ],
+  "codeowners": [
+    "@danrichardson"
+  ],
   "config_flow": true,
   "dependencies": [],
-  "after_dependencies": ["recorder"],
   "documentation": "https://github.com/danrichardson/solarseed-peak-shaver",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/danrichardson/solarseed-peak-shaver/issues",
-  "requirements": []
+  "requirements": [],
+  "version": "0.7.0"
 }
