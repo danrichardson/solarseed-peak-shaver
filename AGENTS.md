@@ -17,6 +17,9 @@ sensor `sensor.available_battery_kwh`, Solcast forecast, PGE (Oregon) Time of Da
 Battery capacity configured 23.5 kWh. See `docs/how-it-works.md` for the full runtime
 behavior and `docs/analysis-plan.md` for the current overhaul effort.
 
+**Picking up the winter 2026 work? Start with `docs/HANDOFF.md`.** It has the current
+state, the one temporary change on the live box, and the next steps.
+
 ## Repo layout
 
 | Path | What |
@@ -38,21 +41,36 @@ automations, dashboard, template helpers). It is a snapshot, not the live config
 
 ## Working rules
 
-- **Tests:** `python -m pytest -q` from repo root (118 tests, <1s, needs `pytest pytest-asyncio pyyaml`). Run before every commit. CI (`.github/workflows/ci.yml`) also validates JSON files and runs on py3.12/3.13.
+- **Tests:** `python -m pytest -q` from repo root (201 tests, a few seconds, needs `pytest pytest-asyncio pyyaml`). Run before every commit. CI (`.github/workflows/ci.yml`) also validates JSON files and runs on py3.12/3.13.
 - **Version bumps** must touch both `const.py` `VERSION` and `manifest.json` `version`.
 - **Config keys are persisted** in users' config entries. Renaming/removing a `CONF_*` key or changing an event name is a breaking change - add migration or keep the old key.
 - **Store schema:** `store.py` `STORAGE_VERSION = 1`. Adding fields to scorecards is fine (readers use `.get`). Changing meaning of an existing field needs a version bump and a migration, or historical analysis silently mixes semantics.
 - **Strings:** any new config field needs entries in both `strings.json` and `translations/en.json`.
-- **Deploy path:** HA installs from GitHub via HACS custom repo `danrichardson/solarseed-peak-shaver`. Pushing to `main` + a HACS update + HA restart is a deploy. Do not push to main or touch the live HA box without explicit instruction from Dan.
+- **Deploy path:** HA installs from GitHub via HACS custom repo `danrichardson/solarseed-peak-shaver`. HACS tracks GitHub **releases** (tags `vX.Y.Z`), so a deploy is: push `main`, create the release, update in HACS, restart HA. A push to `main` alone does not reach the box. Before pushing, run `git log origin/main..main` so you know exactly what will be published. Do not push to main, create a release or touch the live HA box without explicit instruction from Dan. HACS installs and updates must be accepted by Dan in the Home Assistant UI; the API refuses them until he has.
 - **Live HA box is production** (it runs the house battery). Read-only by default: pulling logs/storage/history is fine once access is set up; changing config entries, automations, or inverter modes requires explicit approval each time.
 - Delete-worthy junk: `*:Zone.Identifier` files got committed in the pre-migration snapshot (Windows download markers). Safe to `git rm` when convenient.
 
 ## Live system access
 
 HAOS 18.x runs as VM 240 (`haos-12.0`) on Proxmox node pve3 (LAN IP ends in .83; see
-`~/src/Tools/torrentbox-lx/AGENTS.md`). Exact access method (SSH add-on, API token,
-`qm guest exec`) is TBD - record it here once Dan walks through it. Key files on the HA
-config volume:
+`~/src/Tools/torrentbox-lx/AGENTS.md`).
+
+Access method (established 2026-11-13): Dan creates a temporary HA administrator user
+and deletes it when the work is done; ask him for current credentials, never store them
+in this repo. Everything needed so far comes over HA's own HTTP API on port 8123:
+
+- Log in with the `/auth/login_flow` + `/auth/token` flow, then use the bearer token.
+- REST: `/api/states`, `/api/history/period/...`, `/api/logbook/...`,
+  `/api/diagnostics/config_entry/<entry_id>` (the integration's live config and state).
+- WebSocket `/api/websocket`: `recorder/statistics_during_period` (hourly statistics back
+  to 2025-05, 5-minute for about 10 days), `automation/config`, `config_entries/get`,
+  `supervisor/api` (add-on list, logs).
+- Helper scripts live in `analysis/scripts/` (gitignored): `ha.py`, `pull_history.py`.
+  In Git Bash set `MSYS_NO_PATHCONV=1` or `/api/...` arguments get rewritten.
+- Not needed so far: SSH, `qm guest exec`, copying the recorder DB, InfluxDB (raw Bluetti
+  data also lands in the `bluetti` bucket on the metrics container, CT 400 on pve5).
+
+Key files on the HA config volume (reachable through the File editor add-on if needed):
 
 - `/config/.storage/solarseed_peak_shaver_history` - scorecard history (JSON)
 - `/config/.storage/core.config_entries` - the integration's live config/options
