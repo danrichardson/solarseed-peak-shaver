@@ -142,10 +142,23 @@ peak, and what it costs. Load outside the inverter is by design and is not count
 - Two corrections that change Step 4: charging stops completely when the B300 flips to
   100 % at about 55 V, so item 6b's "until the Vatrers read 99 % or 56 V" cannot
   happen; and the 3 % floor is a setting, not physics (December 2025 event).
-- Dan wants a low-end test on the weekend of 2026-11-21. Ask him first what was
-  different on 2025-12-27 (mode, `number.ac500_battery_range_start`, grid charging
-  off, breaker). Any change on the box for that test needs his approval for that
-  specific change.
+- Dan wants a low-end test on the weekend of 2026-11-21. Any change on the box for
+  that test needs his approval for that specific change.
+- 2026-11-17, Dan: the December 2025 run-down was probably done with the AC500's
+  setting that lets it run below its low-battery protection until it shuts down
+  (instead of switching to grid). Goal of the Saturday test, as revised: find the bus
+  voltage at which the AC500 shuts down (and how it recovers), so the integration can
+  stop discharging at a voltage with a margin above it and use the Vatrer charge now
+  left behind (about 5-7 kWh by the December 2025 numbers). Log the bus voltage
+  (`sensor.vatrer_N_voltage`), each Vatrer percent, B300 percent, AC in and out at
+  1-minute resolution. Note the voltage when the B300 reaches 3 %, when it parks, when
+  any Vatrer BMS cuts out, and at shutdown; then whether the AC500 passes grid through
+  and restarts by itself.
+- Proposed design after the test (not built): optional bus-voltage sensor and a voltage
+  floor; discharge stops (hold) when the loaded bus voltage falls below it, and an
+  unavailable voltage sensor counts as below; energy counted down from the nightly full
+  anchor becomes the ruler, the learned curve the fallback. The B300 percent stays for
+  the top anchor and as a check.
 
 ## The live-box change (cleaned up 2026-11-16)
 

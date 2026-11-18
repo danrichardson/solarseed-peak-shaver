@@ -55,7 +55,12 @@ is the approach and the reasoning.
    and the exceptions, not just the typical case, and say which configuration a
    conclusion belongs to.
 9. **The owner's recollection is data.** Dan said the inverter keeps going at a very low
-   percent. The recent record said otherwise, and the record was incomplete.
+   percent. The recent record said otherwise, and the record was incomplete. He also
+   said, from experience, that the B300 falls more and more slowly near the bottom.
+   That was treated as a maybe until the first shadow day (2026-11-17) measured it:
+   about 0.42 kWh per point below 20 % against 0.16-0.20 higher up. Twice now his
+   hands-on account was right before the data showed it. Treat it as a hypothesis to
+   test first, not one to argue down.
 
 ## What the bank actually does
 
@@ -72,6 +77,14 @@ is the approach and the reasoning.
 - **That floor is a setting, not physics.** In December 2025 the B300 parked at 1 % for
   15 hours while the Vatrers carried the house down to a 48 V bus (findings section 7).
   What made the difference is not yet known.
+- **Near the bottom the gauge slows down, and by how much depends on the Vatrers**
+  (settled 2026-11-17, findings section 10). With the Vatrers fairly full, 17:00-21:00
+  on 11-17 gave 2.61 kWh AC for 6.2 B300 points (18 % to 12 %), about 0.42 kWh per
+  point; that afternoon the gauge even rose from 16 % to 20 % while the bank as a whole
+  was a net source. On the calibration weekend, with the Vatrers low as well, the low
+  end gave about 0.20. One gauge cannot see the difference, so a one-gauge learned curve
+  is pessimistic below about 20 % after a full charge and optimistic when the bank has
+  drifted. Do not re-derive this; measure the Vatrer side instead (bus voltage).
 - **At the top, 99 % and 100 % are different things.** At 99 % the B300's counter is
   full and the inverter keeps charging at about 40 % power. At about 55.0 V the B300
   flips to 100 % and charging stops completely. The Vatrers never see the 56-57 V that
@@ -105,6 +118,12 @@ So the practical recipe is:
    the B300 hits its floor was thought unreachable. The December 2025 event shows it
    can be reached under some setting. Find the setting, test it once on a weekend, then
    decide on a routine floor by bus voltage (around 50 V, not the 48 V extreme).
+   Dan, 2026-11-17: the AC500 has a setting that lets it run below its low-battery
+   protection until it shuts down instead of switching to grid; that is probably how
+   the December 2025 run-down was done. The plan that follows: find the shutdown voltage
+   once on a weekend, then let the integration stop discharging at a bus voltage with a
+   safety margin above it, so the inverter's own cutoff is a backstop that is never
+   reached in normal use.
 
 ## Design for the planner (proposed, not yet built)
 
@@ -160,3 +179,8 @@ Items 4-5 are where the bespoke knowledge goes, as optional inputs.
   event showed it parking at 1 % for 15 hours.
 - Proposed "all Vatrers at 99 % or bus at 56 V" as the full condition before checking
   that the inverter ever gets there. It stops at about 55 V.
+- Built the learned discharge curve from one gauge and trusted its low end. The bottom
+  20 % of the B300 is worth about twice as much after a full charge as after a drifted
+  run-down. The first shadow day showed it: the 21:00 prediction was 8.8 points low and
+  the planner would have bought a mid-peak top-up it did not need. Dan had predicted
+  the slow-down from experience.

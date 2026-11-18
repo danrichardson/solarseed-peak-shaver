@@ -592,3 +592,47 @@ integration was unchanged. Data pulled 21:06 PST.
 - For comparison, the six weekdays before the test averaged 4.7 kWh mid-peak and
   1.9 kWh peak import through the house meter, of which 1.8 and 0.6 kWh were battery
   charging.
+
+## 10. Shadow log (0.7.0, classic planner in control)
+
+One row per TOU day while the learned planner only observes. Gauge is the B300 percent.
+
+| Day | Classic overnight | Gauge 07:00 | Learned would have | Learned prediction 17:00 / 21:00 | Actual 17:00 / 21:00 | Inverter grid kWh mid / peak |
+|---|---|---|---|---|---|---|
+| Tue 11-17 | No charge at 03:00-06:00 ("projected minimum 2.97 kWh, above the 1.5 floor") | 22 | Charged to full from 21:00, held to 07:00 | 14.6 / 3.0 (floor) | 18 / 11.8 | 0.0 / 0.0 |
+
+Notes, Tue 11-17:
+
+- First night on a real Home Assistant: the minute tick ran, the shadow record filled
+  in, no errors in the log.
+- The two planners disagree in the expected direction. Classic reads 22 % as 5.2 kWh
+  and sees no need to charge. The learned curve reads it as 3.8 kWh and expects the
+  battery to reach its floor before 21:00, short by about 2.2 kWh for the peak window.
+- Part of the low start is from the deploy: the 21:41 restart released Monday's hold
+  and the battery carried the house overnight (47 % at 21:00 to 22 % at 07:00). With
+  the hold intact classic would have started near 47 %, still without charging.
+
+Tue 11-17 evening result:
+
+- Classic made the right call: no charge at all, zero grid energy through the inverter
+  in mid-peak and peak, battery at 11.8 % at 21:00. The house drew 1.1 kWh mid-peak and
+  0.5 kWh peak from the grid outside the inverter (by design).
+- Learned load forecast was good: 9.13 kWh forecast, 8.86 kWh actual for 07:00-21:00.
+- Learned gauge prediction: 17:00 off by 3.4 points (inside the 5-point target),
+  21:00 off by 8.8 points (outside it), both on the pessimistic side. Had the learned
+  planner been in control it would have started a mid-peak top-up it did not need
+  (`midpeak_charge_wanted` stayed true).
+- Cause: the low end of the discharge curve. The curve says about 0.20 kWh per point
+  below 22 %. Measured today, 17:00-21:00 (no solar, no grid): 2.61 kWh AC for
+  6.2 points, about 0.42 kWh per point. Between 12:00 and 17:00 the gauge rose from
+  16 % to 20 % while the bank as a whole was a net source (load 2.94 kWh, solar 2.11 kWh
+  DC). Both fit the idea that at low charge the third-party packs carry more of the load
+  and may even top the B300 back up, so the gauge falls more slowly the lower it gets.
+  The calibration weekend saw the low end after a long discharge with the third-party
+  packs also low; today they started from a full charge on Monday. One gauge cannot see
+  that difference.
+- Consequence for winter: small, because in full-charge months the learned planner
+  charges every TOU night and rarely reaches the low end. It matters for the shoulder
+  months and for the mid-peak top-up rule. Watch Wed-Fri before changing anything; the
+  Saturday low-end test is the place to measure it.
+
