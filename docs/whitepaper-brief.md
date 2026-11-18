@@ -117,6 +117,27 @@ One accent color for "what we assumed" and one for "what we measured", used the 
 way in every chart. Units on every axis, local time, color-blind-safe. Tables for
 exact values, charts for shape.
 
+## Findings and the features they produced
+
+Dan wants the paper to point from each thing we learned to the part of the algorithm
+that answers it, and to show how that part learns. Use this table as the backbone of
+section 9 (the design) and check each row against the code before quoting it.
+
+| Finding | Feature | How it learns or decides | Code |
+|---|---|---|---|
+| Daytime charges lined up with forecast refreshes | A forecast update never starts a charge; charging is decided by tariff window | Rules, not learned | `planner.decide` rules 1-2 |
+| A gauge percent is worth 0.13-0.20 kWh, not 0.235, and drifts | Learned discharge curve | AC energy per gauge point in 5-point bins, 30-day half-life, prior 0.235 with weight 3 points | `learning.Curve`, `Learner.sample` |
+| Charging slows at the top; full takes 8-20 h | Learned grid-charge curve with time | Energy and hours per point, timed only at full rate | `Curve.hours_per_pt`, night timing in `planner.decide` |
+| Fixed 0.6 kW base load under-forecast by 0.5 kWh/day | Learned load profile | Hourly mean per day type over 14 days, sized at the 80th percentile | `learning.LoadProfile` |
+| Charging stops when the B300 flips to 100 % | "Bank full" detection | Gauge 100, or 97-99 with charge commanded and stalled 10 min | `learned_runtime._update_bank_full` |
+| The bank drifts out of its band | Weekly top-up after the last TOU day | Rule, months configurable | `planner.decide` rule 4 |
+| Releasing the hold spends off-peak battery that is then bought back in mid-peak (11-18) | Hold until 07:00 after the night charge | Rule | `planner.decide` rule 3 |
+| Mode commands can be lost | Verify from power sensors, resend 3 times, then alert | Measured | `learned_runtime._act` |
+| In deep winter a full charge every night beats sizing | Full-charge months | Replay on a validated bank model | `full_charge_months` option |
+| The low end is worth twice as much after a full charge (11-17) | Pending: energy counted from the full anchor, voltage floor | Weekend test 11-21 | proposed |
+| The battery data path froze for up to 4 days (2025-2026) | Pending: staleness check; inverter SOC Low kept as backstop | Reliability record | proposed |
+| A parked gauge would credit hours of energy to one point | 0.7.1: cap one point at 2 h / 1 kWh | Guard on learning | pending |
+
 ## How to build it
 
 Your choice of tools, with these constraints: charts as vector graphics; one HTML file
