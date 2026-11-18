@@ -636,3 +636,48 @@ Tue 11-17 evening result:
   months and for the mid-peak top-up rule. Watch Wed-Fri before changing anything; the
   Saturday low-end test is the place to measure it.
 
+## 11. AC500 low-end settings and link reliability (2026-11-17)
+
+Dan photographed the AC500's settings screens at 23:19-23:21 PST; the same minutes show
+in Home Assistant's history, which ties each screen to an entity.
+
+- **Battery SOC Low / "Reserved capacity for PV charging" is one value**, exposed in
+  Home Assistant as `number.ac500_battery_range_start` (currently 2). Dan set it to 0 and
+  back to 2 while browsing (history: 2 -> 0 at 23:19:32, -> 2 at 23:19:42); the PV
+  Priority screen showed 0 at 23:19:32 and the Time Control SOC screen showed 2 later.
+  The unit's own help text: below this value the load is powered by the grid in bypass,
+  and "setting it at 0 may cause the failure of bypass function". With 2 the observed
+  handover is at gauge 3 % (65 hours at 3 % since January 2026, grid took over each time).
+- **Deep Discharge** (off) is not the low-end setting. Its help text: only available when
+  SOC is 0 %, damages the pack, emergency use only. Leave it off.
+- Likely explanation of December 2025 (inferred, not proven): the value was 1 or 0. The
+  B300 parked at 1 % while the Vatrers carried the house, and the grid took over in the
+  hour the B300 reached 0 % (bus 48.2 V), which is what this setting does.
+- Forum reports from other AC500 owners include bypass not engaging at SOC Low; on this
+  unit at 2 it has engaged every time. Whether it does at 1 is what Saturday tests.
+
+Link reliability, from 18 months of hourly statistics (2025-05-31 to 2026-11-17).
+Missing rows are easy to see; frozen values (a house load reported to the watt for
+hours) are the worse failure because they look healthy.
+
+| Start (PST) | AC500 data | Vatrer data |
+|---|---|---|
+| 2025-10-28 00:00 | frozen 7 h | frozen 7 h |
+| 2025-11-30 06:00 | frozen 16 h | frozen 16 h |
+| 2026-02-16 00:00 | frozen 11 h | frozen 11 h |
+| 2026-04-20 18:00 | frozen 20 h, then missing 54 h | normal |
+| 2026-05-02 13:00 | frozen 93 h | frozen 93 h |
+| 2026-05-07 08:00 | output power missing 4 h | normal |
+| 2026-09-14 17:00 | normal | missing 5 h |
+
+- Home Assistant itself was up: the only hours missing for everything are three single
+  hours. The failures are in the battery data path, about 210 hours in all (1.6 % of the
+  time), five long episodes, none on the AC500 side since May 2026.
+- Four of the five long episodes froze the AC500 and the Vatrer readings together, so a
+  voltage guard on the Vatrer sensors fails at the same moments as the gauge. Commands
+  to the inverter probably travel the same path (not verified).
+- Design consequence: Home Assistant can be the first line at the bottom, not the only
+  one. The inverter's own SOC Low must stay set to a value where bypass works, and the
+  integration needs a staleness check (a reading that has not changed for some minutes
+  counts as missing), not just an unavailable check.
+

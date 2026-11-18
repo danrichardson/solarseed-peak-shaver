@@ -154,6 +154,13 @@ peak, and what it costs. Load outside the inverter is by design and is not count
   1-minute resolution. Note the voltage when the B300 reaches 3 %, when it parks, when
   any Vatrer BMS cuts out, and at shutdown; then whether the AC500 passes grid through
   and restarts by itself.
+- Revised 2026-11-17 late (findings section 11): Deep Discharge is a below-0 % emergency
+  mode, not the setting; the setting is `number.ac500_battery_range_start` (SOC Low, now
+  2, handover seen at gauge 3). Saturday no longer hunts the shutdown voltage: set it to
+  1, let the B300 park, record the bus voltage and Vatrer charge when the inverter
+  bypasses to grid at gauge 0 (December 2025: 48.2 V), with an abort if the bus reaches
+  about 47.5 V without a handover (switch to grid by hand or by mode). Never 0: the
+  unit warns bypass may fail. Keep 1 afterwards only if the handover worked.
 - Proposed design after the test (not built): optional bus-voltage sensor and a voltage
   floor; discharge stops (hold) when the loaded bus voltage falls below it, and an
   unavailable voltage sensor counts as below; energy counted down from the nightly full
