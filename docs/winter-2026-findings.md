@@ -600,6 +600,7 @@ One row per TOU day while the learned planner only observes. Gauge is the B300 p
 | Day | Classic overnight | Gauge 07:00 | Learned would have | Learned prediction 17:00 / 21:00 | Actual 17:00 / 21:00 | Inverter grid kWh mid / peak |
 |---|---|---|---|---|---|---|
 | Tue 11-17 | No charge at 03:00-06:00 ("projected minimum 2.97 kWh, above the 1.5 floor") | 22 | Charged to full from 21:00, held to 07:00 | 14.6 / 3.0 (floor) | 18 / 11.8 | 0.0 / 0.0 |
+| Wed 11-18 | Charged 03:00-04:48 to 38 %, then released to PV_PRIORITY (no hold); 26 % at 07:00 | 26 | Charged to full from 21:00 Tue, held to 07:00 | 3.0 / 3.0 (floor by 17:00) | 17 / 8 (after 4 mid-peak top-ups) | 4.02 / 0.0 |
 
 Notes, Tue 11-17:
 
@@ -635,6 +636,22 @@ Tue 11-17 evening result:
   charges every TOU night and rarely reaches the low end. It matters for the shoulder
   months and for the mid-peak top-up rule. Watch Wed-Fri before changing anything; the
   Saturday low-end test is the place to measure it.
+
+Wed 11-18 (dark day, 1.1 kWh solar):
+
+- Classic charged 03:00-04:48 and then switched to PV_PRIORITY instead of holding, so
+  the battery spent about 12 gauge points on the house at off-peak prices before 07:00.
+- It then made four mid-peak top-ups at 07:12, 09:36, 12:00 and 14:24, exactly
+  144 minutes apart: the Solcast refresh cadence (section 2, H9), live on the box.
+  Integration count 6.34 kWh in its own units; 4.02 kWh through the inverter in
+  mid-peak. Nothing in peak. Its own scorecard graded the day D (64).
+- The learned prediction cannot be scored directly because classic's charges are not
+  in it. As a rough check, the top-ups added about 27 points by classic's own count;
+  without them the gauge would have reached its floor before 17:00, which is what the
+  learned planner predicted at 07:00.
+- Learned load forecast again close: 9.19 kWh forecast, 9.26 actual.
+- Cost of the difference, roughly: 4.0 kWh bought at mid-peak instead of off-peak is
+  about $0.31 for the day.
 
 ## 11. AC500 low-end settings and link reliability (2026-11-17)
 
