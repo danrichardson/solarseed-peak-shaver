@@ -53,8 +53,11 @@ A Vatrer cutting out on its own BMS is **not** an abort: it is safe and recovers
   inverter mode (the 0.7.0 restart released a hold). Done, same commit; 219 tests pass.
 - [ ] **[Dan] Thu:** approve release 0.7.1 and the update + restart (midday, while the
   inverter is on battery anyway, so a restart is harmless). Accept in HACS if asked.
-- [ ] **[Claude] Thu:** write the temporary automation (below) and the monitor script;
-  send both to Dan to read.
+- [x] **[Claude] Thu:** write the temporary automation (below) and the monitor script;
+  send both to Dan to read. Done Wed night: `analysis/data/live_changes/lowend_automation_2026-11-20.yaml`
+  (templates checked against live values with HA's template renderer, nothing installed)
+  and `analysis/scripts/lowend_monitor.py` (read-only; dry run logged two rows, sent
+  nothing). Both are local only (analysis/ is not in git).
 - [ ] **[Dan]:** approve the temporary automation `temp_claude_lowend_test_20261120`.
 - [ ] **[Dan]:** confirm the 1500 W heater is on an AC500-backed outlet and safe to
   run unattended for about 12 hours.
