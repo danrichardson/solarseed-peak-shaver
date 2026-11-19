@@ -51,8 +51,10 @@ A Vatrer cutting out on its own BMS is **not** an abort: it is safe and recovers
   Done Wed night, commit 76c2620; on the last 10 days of real data it discards nothing.
 - [x] **[Claude] Thu:** same release: a Home Assistant restart must not change the
   inverter mode (the 0.7.0 restart released a hold). Done, same commit; 219 tests pass.
-- [ ] **[Dan] Thu:** approve release 0.7.1 and the update + restart (midday, while the
+- [x] **[Dan] Thu:** approve release 0.7.1 and the update + restart (approved; v0.7.1 released Wed night; HACS refused the agent's install Thu 12:41, so Dan installs it) (midday, while the
   inverter is on battery anyway, so a restart is harmless). Accept in HACS if asked.
+- [ ] **[Dan]:** install v0.7.1 in HACS and restart (any time before Fri 21:00).
+- [ ] **[Claude]:** verify 0.7.1 is loaded, no errors, mode unchanged by the restart.
 - [x] **[Claude] Thu:** write the temporary automation (below) and the monitor script;
   send both to Dan to read. Done Wed night: `analysis/data/live_changes/lowend_automation_2026-11-20.yaml`
   (templates checked against live values with HA's template renderer, nothing installed)
