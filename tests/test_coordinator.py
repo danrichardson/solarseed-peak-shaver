@@ -38,6 +38,7 @@ def _make_coordinator(config_overrides=None, days=None):
     coord.store = store
     coord._unsub_listeners = []
     coord._charging_active = False
+    coord._events_armed = True
     coord.last_simulation_csv = ""
     coord.last_simulation_summary = ""
     coord._tracking_date = None

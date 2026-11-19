@@ -221,6 +221,30 @@ class TestLearner:
         self._run(ln, [40], 0.0, 0.6, 0.0, 5)
         assert sum(ln.discharge.p) == 0
 
+    def test_parked_gauge_is_not_learned(self):
+        ln = Learner()
+        self._run(ln, [6, 5, 4, 3, 2], 0.0, 0.6, 0.0, 15)
+        self._run(ln, [1], 0.0, 0.6, 0.0, 1)                     # the real 2 -> 1 point closes here
+        seen_p, seen_e = sum(ln.discharge.p), sum(ln.discharge.e)
+        self._run(ln, [1], 0.0, 0.6, 0.0, 15 * 60)              # parked at 1 % for 15 h, 9 kWh
+        self._run(ln, [0], 0.0, 0.6, 0.0, 15)
+        assert sum(ln.discharge.p) == seen_p
+        assert sum(ln.discharge.e) == pytest.approx(seen_e)
+        assert ln.discharge.per_pt(0) < 0.3
+
+    def test_slow_but_real_points_are_still_learned(self):
+        ln = Learner()
+        # a quiet night: 0.35 kW and 0.42 kWh per point = 72 minutes per point
+        self._run(ln, range(20, 9, -1), 0.0, 0.35, 0.0, 72)
+        assert sum(ln.discharge.p) == pytest.approx(9.0)
+        assert ln.discharge.per_pt(2) > 0.3
+
+    def test_charging_tail_is_not_capped(self):
+        ln = Learner()
+        # throttled tail at the top: 3 hours on one point is real and must be learned
+        self._run(ln, [97, 98, 99, 100], 0.9, 0.2, 0.0, 180)
+        assert sum(ln.grid_charge.p) == pytest.approx(2.0)
+
     def test_round_trip_through_json(self):
         ln = Learner()
         for _ in range(3):

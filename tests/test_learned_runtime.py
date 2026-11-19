@@ -222,6 +222,27 @@ class TestClassicStandsDown:
         assert coord._charging_active is False
 
 
+class TestClassicRestart:
+    def _solar(self, coord, world):
+        solar = MagicMock()
+        solar.state = "5.0"
+        solar.attributes = {"detailedHourly": [{"period_start": "2026-11-16T12:00:00", "pv_estimate": 1.0}]}
+        base_get = world.get
+        coord.hass.states.get = lambda e: solar if e == "sensor.solcast_today" else base_get(e)
+
+    def test_first_calculation_after_start_fires_nothing(self):
+        import asyncio
+
+        rt, coord, world = make_runtime(planner="classic")
+        self._solar(coord, world)
+        coord._events_armed = False                              # as after a restart
+        world.values["sensor.battery_soc"] = (20.0, "kWh")       # classic would fire charge_stop
+        assert asyncio.run(coord._async_update_data()) is not None
+        assert fired(coord) == []                                # a restart leaves a hold alone
+        asyncio.run(coord._async_update_data())
+        assert fired(coord) == [EVENT_CHARGE_STOP]               # later calculations act as before
+
+
 class TestPersistence:
     def test_state_round_trip(self):
         rt, coord, world = make_runtime()

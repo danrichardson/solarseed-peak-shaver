@@ -94,6 +94,9 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         self.store = store
         self._unsub_listeners: list[CALLBACK_TYPE] = []
         self._charging_active: bool = False
+        # The first calculation after a (re)start only computes. Firing from it would
+        # change the inverter's mode on every restart (0.7.0 released a hold that way).
+        self._events_armed: bool = False
         self.last_simulation_csv: str = ""
         self.last_simulation_summary: str = ""
 
@@ -1185,6 +1188,11 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             # The learned planner drives the inverter. Keep computing the classic
             # numbers for comparison, but fire nothing.
             self._charging_active = False
+            return result
+
+        if not self._events_armed:
+            self._events_armed = True
+            _LOGGER.info("First calculation since start: leaving the inverter mode as it is")
             return result
 
         solar_forecast_state = self.hass.states.get(self.solar_forecast_entity)

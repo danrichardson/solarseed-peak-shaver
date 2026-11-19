@@ -283,6 +283,11 @@ class Learner:
     MAX_SAMPLE_HOURS = 0.25
     #: grid input above this counts as a full-rate charge for the timing curve
     FULL_RATE_KW = 1.2
+    #: a discharge stretch that takes longer than this, or delivers more than this, without
+    #: the gauge moving is not a measurement of one point: the small battery is parked
+    #: (seen at 1 % for 15 hours) while the others carry the load. Thrown away.
+    MAX_DISCHARGE_POINT_HOURS = 2.0
+    MAX_DISCHARGE_POINT_KWH = 1.0
 
     def __init__(self, prior_per_pt: float = 0.235, half_life_days: float = 30.0, bin_pts: float = 5.0) -> None:
         kw = dict(bin_pts=bin_pts, prior_per_pt=prior_per_pt, half_life_days=half_life_days)
@@ -321,6 +326,13 @@ class Learner:
             self._full_rate = False
         moved = gauge - self._g0
         want = -1 if regime == REGIME_DISCHARGE else 1
+        if regime == REGIME_DISCHARGE and (
+            self._hours > self.MAX_DISCHARGE_POINT_HOURS or self._energy > self.MAX_DISCHARGE_POINT_KWH
+        ):
+            # parked gauge: drop the stretch, and start again unaligned (the next
+            # point is partial)
+            self._reset_segment(regime, gauge)
+            return
         if moved * want >= 1.0:
             if self._aligned:
                 curve = {REGIME_DISCHARGE: self.discharge, REGIME_GRID_CHARGE: self.grid_charge,
