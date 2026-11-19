@@ -655,13 +655,13 @@ Wed 11-18 (dark day, 1.1 kWh solar):
 
 ## 11. AC500 low-end settings and link reliability (2026-11-17)
 
-Dan photographed the AC500's settings screens at 23:19-23:21 PST; the same minutes show
-in Home Assistant's history, which ties each screen to an entity.
+Dan photographed the AC500's settings screens; the photo timestamps match changes in
+Home Assistant's history to the second, which ties each screen to an entity.
 
 - **Battery SOC Low / "Reserved capacity for PV charging" is one value**, exposed in
   Home Assistant as `number.ac500_battery_range_start` (currently 2). Dan set it to 0 and
-  back to 2 while browsing (history: 2 -> 0 at 23:19:32, -> 2 at 23:19:42); the PV
-  Priority screen showed 0 at 23:19:32 and the Time Control SOC screen showed 2 later.
+  back to 2 while browsing (2 -> 0 -> 2 ten seconds apart in history); the PV Priority
+  screen showed 0 at the same second and the Time Control SOC screen showed 2 later.
   The unit's own help text: below this value the load is powered by the grid in bypass,
   and "setting it at 0 may cause the failure of bypass function". With 2 the observed
   handover is at gauge 3 % (65 hours at 3 % since January 2026, grid took over each time).
