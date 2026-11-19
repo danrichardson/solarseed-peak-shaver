@@ -675,10 +675,15 @@ Home Assistant's history to the second, which ties each screen to an entity.
 
 - **A 2-minute charge every night at about 23:16** (seen 2026-11-18: 2.5 kW from
   23:16:26 to 23:18:26 in TIME_CONTROL; the same burst is in the 23:15 bucket on every
-  night with a hold since at least 11-08). Cause: the AC500's own Time Control schedule
-  has "Period 1: Charge 00:00-00:01" (photo), and the AC500's clock runs about 44 minutes
-  fast. Harmless (about 0.08 kWh off-peak), but anyone using the AC500's own schedule
-  should correct its clock first.
+  night with a hold since at least 11-08). Mechanism: the AC500's own Time Control
+  schedule has "Period 1: Charge 00:00-00:01" (photo), and the AC500's clock runs about
+  44 minutes fast. About 0.08 kWh a night, off-peak.
+- **OPEN, do not remove Period 1** (Dan, 2026-11-18): it is there on purpose, probably a
+  dummy period so that Time Control behaves like a UPS that passes grid through without
+  charging to 100 %, which is how the integration's evening "hold" works. To figure out:
+  what Time Control does with no period set, whether the hold depends on this period,
+  and whether the clock offset matters. Until then treat Period 1 and the AC500 clock as
+  part of the hold's configuration.
 
 Link reliability, from 18 months of hourly statistics (2025-05-31 to 2026-11-17).
 Missing rows are easy to see; frozen values (a house load reported to the watt for

@@ -58,7 +58,10 @@ A Vatrer cutting out on its own BMS is **not** an abort: it is safe and recovers
   (templates checked against live values with HA's template renderer, nothing installed)
   and `analysis/scripts/lowend_monitor.py` (read-only; dry run logged two rows, sent
   nothing). Both are local only (analysis/ is not in git).
-- [ ] **[Dan]:** approve the temporary automation `temp_claude_lowend_test_20261120`.
+- [x] **[Dan]:** approve the temporary automation `temp_claude_lowend_test_20261120`.
+  Approved and installed Wed 2026-11-18 late evening; entity
+  `automation.temp_claude_low_end_test_weekend_2026_11_20`, on, inert until Fri 21:00.
+  No errors in the log; 20 automations now.
 - [ ] **[Dan]:** confirm the 1500 W heater is on an AC500-backed outlet and safe to
   run unattended for about 12 hours.
 - [ ] **[Claude] Fri 20:00:** snapshot states, diagnostics and the integration's

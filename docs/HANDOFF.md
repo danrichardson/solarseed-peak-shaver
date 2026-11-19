@@ -167,6 +167,18 @@ peak, and what it costs. Load outside the inverter is by design and is not count
   anchor becomes the ruler, the learned curve the fallback. The B300 percent stays for
   the top anchor and as a check.
 
+## Live-box changes for the low-end weekend (open)
+
+- 2026-11-18, approved by Dan: temporary automation `temp_claude_lowend_test_20261120`
+  (entity `automation.temp_claude_low_end_test_weekend_2026_11_20`). Source:
+  `analysis/data/live_changes/lowend_automation_2026-11-20.yaml`; states before:
+  `states_before_lowend_automation.json`. Date-guarded, inert outside
+  2026-11-20 21:00 .. 2026-11-23 08:00. Delete it Sunday 2026-11-22 (checklist).
+- Planned, each needing Dan's OK at the time: SOC Low 2 -> 1 and PV_PRIORITY Saturday
+  morning; v0.7.1 install and restart Thursday midday (approved).
+- Do not touch the AC500's Time Control "Period 1: Charge 00:00-00:01": Dan set it on
+  purpose (findings section 11, open question).
+
 ## The live-box change (cleaned up 2026-11-16)
 
 One temporary automation, added 2026-11-13 16:59 PST with Dan's approval:
