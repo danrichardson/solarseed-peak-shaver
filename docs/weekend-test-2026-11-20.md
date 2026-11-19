@@ -46,10 +46,11 @@ A Vatrer cutting out on its own BMS is **not** an abort: it is safe and recovers
 
 ## Before Friday
 
-- [ ] **[Claude] Thu:** fix the learner so a parked gauge cannot corrupt the curve
+- [x] **[Claude] Thu:** fix the learner so a parked gauge cannot corrupt the curve
   (cap one gauge point at 2 hours / 1 kWh; discard longer stretches). Tests pass.
-- [ ] **[Claude] Thu:** same release: a Home Assistant restart must not change the
-  inverter mode (the 0.7.0 restart released a hold).
+  Done Wed night, commit 76c2620; on the last 10 days of real data it discards nothing.
+- [x] **[Claude] Thu:** same release: a Home Assistant restart must not change the
+  inverter mode (the 0.7.0 restart released a hold). Done, same commit; 219 tests pass.
 - [ ] **[Dan] Thu:** approve release 0.7.1 and the update + restart (midday, while the
   inverter is on battery anyway, so a restart is harmless). Accept in HACS if asked.
 - [ ] **[Claude] Thu:** write the temporary automation (below) and the monitor script;
