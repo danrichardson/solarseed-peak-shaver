@@ -115,8 +115,13 @@ Runs on the box whether or not Claude is awake. Each action notifies Dan's phone
 - [ ] Old handover point: does the inverter carry on past B300 3 % now? (expected yes)
 - [ ] B300 parks at 1 %: time, bus voltage, Vatrer percents.
 - [ ] Any Vatrer BMS cut-out: time, voltage, which pack.
-- [ ] **Handover**: time, bus voltage, B300 0 %, each Vatrer percent. Did the house
-  blink? Does AC input carry the load?
+- [ ] **Handover**: time, bus voltage, B300 percent, each Vatrer percent. Did the house
+  blink? Does AC input carry the load? Expect the AC500 to grid-charge the B300 about
+  7 points at once (seen Thu 11-19 at 3 %: back to 10 % in 26 min), so the gauge will
+  not sit at 0-1 %. The signal is grid input while in PV_PRIORITY (findings section 11).
+- [ ] [Dan] approve the automation's handover trigger fix (v2: PV_PRIORITY, gauge
+  5 % or less, AC input over 300 W for 2 min). Without it the automation will not set
+  STANDARD at the handover; Claude does it by hand instead, so this is optional.
 - [ ] [Dan] heater OFF once the grid has taken over.
 
 ## Saturday evening to Sunday: recharge

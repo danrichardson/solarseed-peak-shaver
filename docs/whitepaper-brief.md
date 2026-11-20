@@ -136,7 +136,9 @@ section 9 (the design) and check each row against the code before quoting it.
 | In deep winter a full charge every night beats sizing | Full-charge months | Replay on a validated bank model | `full_charge_months` option |
 | The low end is worth twice as much after a full charge (11-17) | Pending: energy counted from the full anchor, voltage floor | Weekend test 11-21 | proposed |
 | The battery data path froze for up to 4 days (2025-2026) | Pending: staleness check; inverter SOC Low kept as backstop | Reliability record | proposed |
-| A parked gauge would credit hours of energy to one point | 0.7.1: cap one point at 2 h / 1 kWh | Guard on learning | pending |
+| A parked gauge would credit hours of energy to one point | 0.7.1: cap one point at 2 h / 1 kWh | Guard on learning | `Learner.sample` (0.7.1, live since 11-19) |
+| A restart released the evening hold (11-16) | 0.7.1: the first calculation after a start changes nothing | Rule | `coordinator._events_armed` |
+| Running out in peak triggers the AC500's own grid charge, about 7 points at peak price (11-19) | Pending: treat the handover as a cost, not a floor; keep margin above it in peak | Shadow log 11-19, history 11-11 and 11-13 | proposed |
 
 ## How to build it
 

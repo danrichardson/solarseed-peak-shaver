@@ -340,7 +340,8 @@ power sensors say 2.06-2.28 kWh each.
 - Whenever the B300 touched 3 % in PV_PRIORITY the inverter handed the house to the
   grid. Spring 2026: 6 of 6 such hours had grid carrying the load, with the Vatrers
   still at 12-32 %. November 2026: 5 episodes, 30-70 minutes on battery below 6 %, then
-  grid. The handover is seamless, so the house does not notice.
+  grid. The handover is seamless, so the house does not notice. (Correction 2026-11-19:
+  it also grid-charges the B300 about 7 points right away; section 11, handover bounce.)
 - The B300 does not hold at 3-5 % while the Vatrers carry on. At 5-12 % it still falls
   2.4-3.5 points per hour.
 - So the Vatrer charge left at that moment is not delivered in that cycle. From a full
@@ -601,6 +602,7 @@ One row per TOU day while the learned planner only observes. Gauge is the B300 p
 |---|---|---|---|---|---|---|
 | Tue 11-17 | No charge at 03:00-06:00 ("projected minimum 2.97 kWh, above the 1.5 floor") | 22 | Charged to full from 21:00, held to 07:00 | 14.6 / 3.0 (floor) | 18 / 11.8 | 0.0 / 0.0 |
 | Wed 11-18 | Charged 03:00-04:48 to 38 %, then released to PV_PRIORITY (no hold); 26 % at 07:00 | 26 | Charged to full from 21:00 Tue, held to 07:00 | 3.0 / 3.0 (floor by 17:00) | 17 / 8 (after 4 mid-peak top-ups) | 4.02 / 0.0 |
+| Thu 11-19 | Charged 03:00-03:51 (3.8 kWh by its count), then released; 11 % at 07:00 | 11 | Charged to full from 21:00 Wed, held to 07:00 | 8.4 / 3.0 (short 3.6 kWh) | 13 / ran out at 19:47, then 9-10 after the AC500's own grid charge | 1.98 / 1.98 |
 
 Notes, Tue 11-17:
 
@@ -653,6 +655,31 @@ Wed 11-18 (dark day, 1.1 kWh solar):
 - Cost of the difference, roughly: 4.0 kWh bought at mid-peak instead of off-peak is
   about $0.31 for the day.
 
+Thu 11-19 (classic ran out in peak):
+
+- Classic charged 03:00-03:51 and released again, so the battery carried the house from
+  about 20 % to 11 % at off-peak prices before 07:00, and was at 4 % by 09:18.
+- 09:36-09:46 classic topped up (STANDARD) and set PV_PRIORITY at 7 %. The AC500 did not
+  go back to battery: it kept the house on grid at about 0.7 kW mean until the gauge
+  reached 12 % at 11:56 (solar and grid together). 12:00-12:10 one more classic top-up.
+  Mid-peak grid through the inverter 1.98 kWh, most of it that bypass stretch.
+- HA was restarted for 0.7.1 at 16:25. Classic's first calculation after it wanted a
+  0.7 kWh top-up; 0.7.1 does not act on the first calculation (by design), and peak
+  started 35 minutes later. That top-up would have covered about half the shortfall.
+- 19:47 the B300 reached 3 % and the AC500 handed over (section 11, "handover bounce"):
+  it grid-charged at about 2.2 kW to 10 % in 26 minutes, then carried the house from
+  the grid until the 21:05 hold. Peak grid through the inverter 1.98 kWh: 1.39 kWh of
+  house load plus about 0.6 kWh into the battery, all at 43.13 c.
+- The learned prediction was right in kind: it said 3.6 kWh short at 07:00, and even
+  with classic's two top-ups and the bypass stretch the battery ran out 73 minutes
+  before 21:00. Learned load forecast: 9.32 kWh forecast, 9.49 actual.
+- Cost against buying the same energy off-peak: about $0.68 for peak plus $0.15 for
+  mid-peak, so about $0.83 for the day.
+- The 21:10 daily scorecard crashed (OverflowError): the 16:25 restart had cleared the
+  day's minimum tracker, so the 21:00 checkpoint stored infinity. No scorecard for
+  11-19. Fixed locally (commit 3e76319), not released; any restart between 07:00 and
+  21:00 has had this bug since the scorecard was added.
+
 ## 11. AC500 low-end settings and link reliability (2026-11-17)
 
 Dan photographed the AC500's settings screens; the photo timestamps match changes in
@@ -672,6 +699,21 @@ Home Assistant's history to the second, which ties each screen to an entity.
   hour the B300 reached 0 % (bus 48.2 V), which is what this setting does.
 - Forum reports from other AC500 owners include bypass not engaging at SOC Low; on this
   unit at 2 it has engaged every time. Whether it does at 1 is what Saturday tests.
+- **Handover bounce** (2026-11-19, correcting "handed the house to the grid" in section 7):
+  at the handover in PV_PRIORITY the AC500 does not just pass grid through. It
+  grid-charges the B300 at about 2.2 kW AC (house plus about 1.6 kW into the bank) from
+  3 % to about 10 % in about 26 minutes, then stays on grid, passing it through, until
+  the mode changes. Same shape on 11-11 and 11-13 (3 -> 5 -> 7 -> 9 % within 30 minutes).
+  The bus jumped from 50.98 V to 51.3 V at once and kept rising.
+- **The AC500 can also stay on grid after a mode change at low charge**: 11-19 09:46,
+  PV_PRIORITY set at gauge 7 %, and the inverter drew grid (about 0.7 kW mean) until the
+  gauge reached 12 % at 11:56, then went back to battery. One observation; a guess at
+  the rule is "back to battery at SOC Low plus about 10". Not verified.
+- Consequences: running out in peak costs the shortfall **plus** about 0.6 kWh bought at
+  peak price; a planner should treat the 3 % handover as expensive, not neutral. For the
+  weekend test, the gauge does not stay at 0-1 % after the handover, so "grid input
+  while in PV_PRIORITY" is the handover signal (monitor changed; automation trigger
+  change proposed to Dan, `lowend_automation_2026-11-20_v2.json`).
 
 - **A 2-minute charge every night at about 23:16** (seen 2026-11-18: 2.5 kW from
   23:16:26 to 23:18:26 in TIME_CONTROL; the same burst is in the 23:15 bucket on every
