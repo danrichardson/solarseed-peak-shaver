@@ -675,11 +675,11 @@ Thu 11-19 (classic ran out in peak):
   before 21:00. Learned load forecast: 9.32 kWh forecast, 9.49 actual.
 - Cost against buying the same energy off-peak: about $0.68 for peak plus $0.15 for
   mid-peak, so about $0.83 for the day.
-- The oven ran during peak (a cake). It is not behind the AC500, so it shows in Vue
+- The oven ran during peak. It is not behind the AC500, so it shows in Vue
   mains import but not in the inverter's grid energy; money, not a planner miss.
 - The 21:10 daily scorecard crashed (OverflowError): the afternoon restart had cleared the
   day's minimum tracker, so the 21:00 checkpoint stored infinity. No scorecard for
-  11-19. Fixed locally (commit 3e76319), not released; any restart between 07:00 and
+  11-19. Fixed in 0.7.2 (commit a36a25a); any restart between 07:00 and
   21:00 has had this bug since the scorecard was added.
 
 ## 11. AC500 low-end settings and link reliability (2026-11-17)
