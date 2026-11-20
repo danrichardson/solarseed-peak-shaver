@@ -126,9 +126,10 @@ Runs on the box whether or not Claude is awake. Each action notifies Dan's phone
   blink? Does AC input carry the load? Expect the AC500 to grid-charge the B300 about
   7 points at once (seen Thu 11-19 at 3 %: back to 10 % in 26 min), so the gauge will
   not sit at 0-1 %. The signal is grid input while in PV_PRIORITY (findings section 11).
-- [ ] [Dan] approve the automation's handover trigger fix (v2: PV_PRIORITY, gauge
-  5 % or less, AC input over 300 W for 2 min). Without it the automation will not set
-  STANDARD at the handover; Claude does it by hand instead, so this is optional.
+- [x] [Dan] approve the automation's handover trigger fix (v2: PV_PRIORITY, gauge
+  5 % or less, AC input over 300 W for 2 min). Approved and installed Thu night; the
+  automation now sets STANDARD at the handover. v1 kept as
+  `lowend_automation_v1_as_installed.json`.
 - [ ] [Dan] heater OFF once the grid has taken over.
 
 ## Saturday evening to Sunday: recharge
