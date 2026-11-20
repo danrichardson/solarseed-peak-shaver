@@ -663,9 +663,9 @@ Thu 11-19 (classic ran out in peak):
   go back to battery: it kept the house on grid at about 0.7 kW mean until the gauge
   reached 12 % at 11:56 (solar and grid together). 12:00-12:10 one more classic top-up.
   Mid-peak grid through the inverter 1.98 kWh, most of it that bypass stretch.
-- HA was restarted for 0.7.1 at 16:25. Classic's first calculation after it wanted a
-  0.7 kWh top-up; 0.7.1 does not act on the first calculation (by design), and peak
-  started 35 minutes later. That top-up would have covered about half the shortfall.
+- HA was restarted for 0.7.1 late in mid-peak. Classic's first calculation after it
+  wanted a 0.7 kWh top-up; 0.7.1 does not act on the first calculation (by design), and
+  peak started soon after. That top-up would have covered about half the shortfall.
 - 19:47 the B300 reached 3 % and the AC500 handed over (section 11, "handover bounce"):
   it grid-charged at about 2.2 kW to 10 % in 26 minutes, then carried the house from
   the grid until the 21:05 hold. Peak grid through the inverter 1.98 kWh: 1.39 kWh of
@@ -675,7 +675,9 @@ Thu 11-19 (classic ran out in peak):
   before 21:00. Learned load forecast: 9.32 kWh forecast, 9.49 actual.
 - Cost against buying the same energy off-peak: about $0.68 for peak plus $0.15 for
   mid-peak, so about $0.83 for the day.
-- The 21:10 daily scorecard crashed (OverflowError): the 16:25 restart had cleared the
+- The oven ran during peak (a cake). It is not behind the AC500, so it shows in Vue
+  mains import but not in the inverter's grid energy; money, not a planner miss.
+- The 21:10 daily scorecard crashed (OverflowError): the afternoon restart had cleared the
   day's minimum tracker, so the 21:00 checkpoint stored infinity. No scorecard for
   11-19. Fixed locally (commit 3e76319), not released; any restart between 07:00 and
   21:00 has had this bug since the scorecard was added.
@@ -707,8 +709,13 @@ Home Assistant's history to the second, which ties each screen to an entity.
   The bus jumped from 50.98 V to 51.3 V at once and kept rising.
 - **The AC500 can also stay on grid after a mode change at low charge**: 11-19 09:46,
   PV_PRIORITY set at gauge 7 %, and the inverter drew grid (about 0.7 kW mean) until the
-  gauge reached 12 % at 11:56, then went back to battery. One observation; a guess at
-  the rule is "back to battery at SOC Low plus about 10". Not verified.
+  gauge reached 12 % at 11:56, then went back to battery.
+- **Rule, from Dan (2026-11-19):** once the grid kicks in, the AC500 stays on grid until
+  the battery is back to a set recovery percent, 10 % here ("if you say 10, it's 10"),
+  to prevent oscillation, and it recharges the battery to that level. Little can be
+  done about the recharge itself. Dan is not sure whether one of the modes skips it.
+  This is another reason not to be on grid in peak: one touch of the floor keeps the
+  house on the grid for the rest of the window.
 - Consequences: running out in peak costs the shortfall **plus** about 0.6 kWh bought at
   peak price; a planner should treat the 3 % handover as expensive, not neutral. For the
   weekend test, the gauge does not stay at 0-1 % after the handover, so "grid input

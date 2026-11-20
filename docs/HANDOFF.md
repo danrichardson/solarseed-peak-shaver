@@ -389,7 +389,7 @@ already warns about peak-hour spikes.
 - 0.7.1 trade-off: the first calculation after a restart fires nothing, in either
   direction. That fixed the released hold, but a restart in mid-peak also skips a
   needed top-up until the next calculation (seen 2026-11-19: classic wanted 0.7 kWh
-  at about 16:25, did nothing, and peak started about 35 minutes later). A finer rule:
+  late in mid-peak, did nothing, and peak started soon after). A finer rule:
   on the first calculation, still allow a charge start but never release a hold or
   stop a charge. Not urgent; restarts are rare.
 
