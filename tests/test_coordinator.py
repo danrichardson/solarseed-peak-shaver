@@ -309,3 +309,47 @@ class TestPredictionSnapshots:
                 charging_triggered=False,
             )
         assert len(coord.prediction_snapshots) == 3
+
+
+
+# ───────────────────────────────────────────────────────────────────
+# Restart inside the rate window (2026-11-19: scoring crashed on infinity)
+# ───────────────────────────────────────────────────────────────────
+
+class TestRestartInsideWindow:
+    """A restart between 07:00 and 21:00 leaves the day's minimum unknown."""
+
+    def _soc(self, coord, kwh):
+        state = MagicMock()
+        state.state = str(kwh)
+        coord.hass.states.get = MagicMock(return_value=state)
+
+    def test_no_daily_min_after_midday_restart(self):
+        coord = _make_coordinator()
+        self._soc(coord, 2.1)
+        coord._on_soc_checkpoint(datetime(2026, 11, 19, 21, 0))
+        assert coord.actual_soc_checkpoints["peak_end"] == 2.1
+        assert "daily_min" not in coord.actual_soc_checkpoints
+
+    def test_daily_min_normal_day(self):
+        coord = _make_coordinator()
+        self._soc(coord, 5.0)
+        coord._on_soc_checkpoint(datetime(2026, 11, 19, 7, 0))
+        coord._daily_min_soc = 1.2
+        self._soc(coord, 2.0)
+        coord._on_soc_checkpoint(datetime(2026, 11, 19, 21, 0))
+        assert coord.actual_soc_checkpoints["daily_min"] == 1.2
+
+    @pytest.mark.asyncio
+    async def test_scoring_survives_infinite_minimum(self):
+        coord = _make_coordinator()
+        coord.prediction_snapshots = [{"predicted_minimum_kwh": 2.0}]
+        coord.actual_soc_checkpoints = {"daily_min": float("inf"), "peak_end": 2.1}
+        coord.store.async_save = AsyncMock()
+        coord._send_daily_summary = MagicMock()
+        coord.async_set_updated_data = MagicMock()
+        await coord._async_score_daily_performance()
+        card = coord.last_daily_scorecard
+        assert card["battery_min_actual"] is None
+        assert card["min_prediction_error_kwh"] is None
+        assert card["floor_breached"] is False

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime, time
 from typing import Any
 
@@ -547,8 +548,13 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             self.actual_soc_checkpoints["peak_start"] = round(current_soc, 2)
         elif hour == self.peak_end % 24:
             self.actual_soc_checkpoints["peak_end"] = round(current_soc, 2)
+            # After a restart inside the window, tracking never started and the day's
+            # minimum is unknown (it was infinity, which crashed scoring on 2026-11-19).
+            if self._daily_min_tracking and math.isfinite(self._daily_min_soc):
+                self.actual_soc_checkpoints["daily_min"] = round(
+                    min(self._daily_min_soc, current_soc), 2
+                )
             self._daily_min_tracking = False
-            self.actual_soc_checkpoints["daily_min"] = round(self._daily_min_soc, 2)
 
         _LOGGER.debug("SOC checkpoint at %d:00 = %.2f kWh", hour, current_soc)
 
@@ -705,6 +711,8 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         predicted_at_midpeak = primary.get("predicted_battery_at_midpeak", 0)
 
         actual_min = self.actual_soc_checkpoints.get("daily_min")
+        if actual_min is not None and not math.isfinite(actual_min):
+            actual_min = None
         actual_at_midpeak = self.actual_soc_checkpoints.get("midpeak_start")
 
         # Solar accuracy
