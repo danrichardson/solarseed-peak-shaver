@@ -70,7 +70,12 @@ A Vatrer cutting out on its own BMS is **not** an abort: it is safe and recovers
   `automation.temp_claude_low_end_test_weekend_2026_11_20`, on, inert until Fri 21:00.
   No errors in the log; 20 automations now.
 - [ ] **[Dan]:** confirm the 1500 W heater is on an AC500-backed outlet and safe to
-  run unattended for about 12 hours.
+  run unattended for about 12 hours. Dan plugs it in Saturday morning; Claude sends a
+  reminder notify at 07:15 Saturday (scheduled).
+- [ ] **[Dan]:** install v0.7.2 in HACS and restart (released Thu night; HACS refused
+  the agent's install again). Any time before Fri 21:00; a restart no longer changes
+  the inverter mode.
+- [ ] **[Claude]:** verify 0.7.2 is loaded and no errors.
 - [ ] **[Claude] Fri 20:00:** snapshot states, diagnostics and the integration's
   stored learning (rollback point).
 
