@@ -1,5 +1,96 @@
 # Handoff - winter 2026 analysis and rework
 
+## RESUME HERE - low-end test weekend (written Fri 2026-11-20, early morning)
+
+A fresh agent can pick the weekend up from this section alone. Do these in order.
+
+**1. Revive the timers on this workstation** (they die with a reboot or a closed session).
+Run each as a background job (Bash `run_in_background`), from the repo root:
+
+```bash
+bash analysis/scripts/weekend_jobs.sh
+```
+
+It is restartable: each step runs once (markers in `analysis/data/live_changes/.weekend_jobs_done/`)
+and is skipped if its window has passed. Steps: Fri 20:00 rollback snapshot (states +
+integration diagnostics into `analysis/data/live_changes/*_before_weekend_2026-11-20.json`),
+Fri 21:00 heads-up notify, Fri 21:20 check notify, Sat 07:15 "plug the heater in, leave it
+off" notify. Then, from Fri 21:10 at the latest (any time after the snapshot is fine):
+
+```bash
+cd analysis && python scripts/lowend_monitor.py 2026-11-23T08:00
+```
+
+Read-only; one CSV row a minute to `analysis/data/raw/lowend_2026-11-21.csv` (appends, so a
+restart is safe; it re-sends milestone notifies it already sent). Check access first with
+`MSYS_NO_PATHCONV=1 python analysis/scripts/ha.py rest /api/states/select.ac500_ups_mode`.
+The token (with refresh token) is cached in `analysis/.ha_token.json`; if it fails, ask Dan
+for the temporary HA login and run `ha.py login USER PASSWORD` (never store credentials).
+
+**2. What does NOT depend on this workstation.** The safety and charge actions live on the
+box in the temporary automation `temp_claude_lowend_test_20261120` (entity
+`automation.temp_claude_low_end_test_weekend_2026_11_20`, v2 installed Thu night with
+Dan's OK; source `analysis/data/live_changes/lowend_automation_2026-11-20.yaml`, v1 backup
+`lowend_automation_v1_as_installed.json`). It is date-guarded (Fri 21:00 to Mon 08:00) and
+does: Fri 21:10 STANDARD (full charge); keeps STANDARD until Sat 07:00; "bank full" notify
+Sat morning; handover (PV_PRIORITY, gauge <= 5, AC in > 300 W for 2 min) -> STANDARD;
+lowest Vatrer <= 47.5 V with no grid -> STANDARD + critical notify; stale data notify.
+
+**3. State of the box at handoff (verified Thu 23:30):** integration v0.7.2 (a restart
+no longer changes the mode; scoring survives a mid-day restart), planner `classic`, mode
+TIME_CONTROL (normal evening hold), SOC Low (`number.ac500_battery_range_start`) 2, grid
+charge on, Time Control on, 20 automations (19 normal: 18 on, `power_alerts` off as
+always, plus the temporary one).
+
+**4. The weekend, step by step** - the checklist is `docs/weekend-test-2026-11-20.md`;
+tick it as you go. Every box change gets a notify first (`~/src/notify.sh
+--event=lowend-test`), and the Saturday changes need Dan's OK at the time. Ready payloads in
+`analysis/data/live_changes/`, posted with
+`MSYS_NO_PATHCONV=1 python analysis/scripts/ha.py post /api/services/<domain>/<service> <file>`:
+
+| When | Action | Service | Payload |
+|---|---|---|---|
+| Sat ~08:00, after "bank full" and Dan's OK | SOC Low 2 -> 1 | `number/set_value` | `act_soc_low_1.json` |
+| same | run on battery | `select/select_option` | `act_mode_pv_priority.json` |
+| then | tell Dan to switch the heater on; sag checks per checklist | - | - |
+| abort, any time | safe state | `select/select_option` | `act_mode_standard.json` |
+| Sunday, if Dan decides | SOC Low back to 2 | `number/set_value` | `act_soc_low_2.json` |
+
+Sunday: first numbers to Dan; Dan decides SOC Low (1 or 2) and the planner (`learned`
+about 20:00, or fallback PV_PRIORITY Monday 07:00); delete the temporary automation
+(`DELETE /api/config/automation/config/temp_claude_lowend_test_20261120`, after a notify);
+confirm the box is back to normal. Monday onward: write-up (findings, methodology,
+voltage-floor proposal).
+
+**5. Facts learned this week - do not re-derive** (details in `docs/winter-2026-findings.md`
+sections 10 and 11):
+
+- When the AC500 goes to grid (gauge hits SOC Low + 1, i.e. 3 % today) it stays on grid
+  until the battery is back to its recovery level, 10 %, and grid-charges it there at
+  about 2.2 kW (Dan: anti-oscillation; cannot be avoided). So at Saturday's handover the
+  gauge bounces to about 10 %; the handover signal is grid input while in PV_PRIORITY.
+- Running out in peak costs the shortfall plus about 0.6 kWh bought at peak price.
+- Do not touch the AC500 Time Control "Period 1: Charge 00:00-00:01" (deliberate, open
+  question). Deep Discharge stays OFF. Never set SOC Low to 0.
+- HACS refuses installs from the agent login; Dan clicks install, the agent verifies.
+- Shadow days so far: Tue classic right; Wed classic bought 4 kWh mid-peak; Thu classic
+  ran out at 19:47 in peak. The learned planner called the shortfall each time.
+- The data path (MQTT/BLE) has frozen for hours several times (findings section 11):
+  frozen values look healthy. The inverter's own SOC Low is the backstop.
+
+**6. Repo and git.** Four local doc commits (including this section) are not pushed (`git log origin/main..main`);
+push only when Dan says. Stage files by name: `git add docs` once picked up Dan's untracked
+`docs/ac500-ui-screens.zip` and `docs/whitepaper/` (removed before pushing; they stay
+untracked on disk). Public repo: no exact times of Dan's own actions, no IPs or names.
+Analysis data and scripts in `analysis/` are gitignored and stay local.
+
+**7. Open questions after the weekend:** Period 1's purpose; whether SOC Low 1 bypasses
+cleanly; voltage floor, staleness check and energy-since-full design; first-calculation
+rule refinement (allow a charge start, never release a hold); planner treating the
+handover as a cost.
+
+---
+
 Written 2026-11-13 21:30 PST for the agent who picks this up after the weekend. You are
 starting cold. Read in this order, then come back here:
 
