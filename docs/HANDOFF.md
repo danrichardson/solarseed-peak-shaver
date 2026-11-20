@@ -175,7 +175,9 @@ peak, and what it costs. Load outside the inverter is by design and is not count
   `states_before_lowend_automation.json`. Date-guarded, inert outside
   2026-11-20 21:00 .. 2026-11-23 08:00. Delete it Sunday 2026-11-22 (checklist).
 - Planned, each needing Dan's OK at the time: SOC Low 2 -> 1 and PV_PRIORITY Saturday
-  morning; v0.7.1 install and restart Thursday midday (approved).
+  morning.
+- Done: v0.7.1 installed by Dan and HA restarted Thu 2026-11-19 late afternoon; verified
+  (mode unchanged, no errors).
 - Do not touch the AC500's Time Control "Period 1: Charge 00:00-00:01": Dan set it on
   purpose (findings section 11, open question).
 
@@ -384,6 +386,12 @@ already warns about peak-hour spikes.
   26-06 sheets, effective 2026-04-01, plus PGE's Time of Day web page).
 - The backtest's weekend handling wastes solar in sunnier months; fix before quoting
   February, March or October numbers.
+- 0.7.1 trade-off: the first calculation after a restart fires nothing, in either
+  direction. That fixed the released hold, but a restart in mid-peak also skips a
+  needed top-up until the next calculation (seen 2026-11-19: classic wanted 0.7 kWh
+  at about 16:25, did nothing, and peak started about 35 minutes later). A finer rule:
+  on the first calculation, still allow a charge start but never release a hold or
+  stop a charge. Not urgent; restarts are rare.
 
 ## Scripts in `analysis/scripts/`
 
