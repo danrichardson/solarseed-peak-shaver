@@ -72,10 +72,12 @@ A Vatrer cutting out on its own BMS is **not** an abort: it is safe and recovers
 - [ ] **[Dan]:** confirm the 1500 W heater is on an AC500-backed outlet and safe to
   run unattended for about 12 hours. Dan plugs it in Saturday morning; Claude sends a
   reminder notify at 07:15 Saturday (scheduled).
-- [ ] **[Dan]:** install v0.7.2 in HACS and restart (released Thu night; HACS refused
-  the agent's install again). Any time before Fri 21:00; a restart no longer changes
-  the inverter mode.
-- [ ] **[Claude]:** verify 0.7.2 is loaded and no errors.
+- [x] **[Dan]:** install v0.7.2 in HACS and restart (released Thu night; HACS refused
+  the agent's install again). Done Thu night.
+- [x] **[Claude]:** verify 0.7.2 is loaded and no errors. v0.7.2 installed; mode
+  TIME_CONTROL before and after the restart (the first calculation wanted a 5.4 kWh
+  charge and, as designed, fired nothing); SOC Low 2; weekend automation on; no errors
+  from the integration (only the known Solcast startup race).
 - [ ] **[Claude] Fri 20:00:** snapshot states, diagnostics and the integration's
   stored learning (rollback point).
 
@@ -148,7 +150,7 @@ Runs on the box whether or not Claude is awake. Each action notifies Dan's phone
   [Claude] sets PV_PRIORITY at Monday 07:00.
 - [ ] [Claude] delete `temp_claude_lowend_test_20261120` (it is inert by then anyway).
 - [ ] [Claude] confirm the box is back to normal: mode, SOC Low as decided, planner as
-  decided, all 19 normal automations on.
+  decided, the 19 normal automations as before (18 on, `power_alerts` off).
 
 ## Monday 2026-11-23
 
