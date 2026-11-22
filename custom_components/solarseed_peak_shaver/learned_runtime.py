@@ -32,6 +32,7 @@ from .const import (
     PLANNER_LEARNED,
 )
 from .learning import Learner, LoadProfile, build_from_samples, profile_from_hourly
+from .packs import PackTracker
 from .planner import (
     MODE_CHARGE,
     MODE_DISCHARGE,
@@ -52,6 +53,10 @@ TICK_FAILS_FAILSAFE = 10    # consecutive failed ticks before returning the inve
 PUBLISH_EVERY_MIN = 5       # sensors are refreshed on a change, and at least this often
 FULL_CONFIRM_MIN = 10       # minutes of "charging asked, nothing going in" that mean full
 TOPUP_MAX_HOURS = 24        # a weekly top-up that has not finished by then is abandoned
+
+# Sibling sensors of a pack's current sensor ("..._current"), found by name.
+PACK_VOLTAGE_SUFFIXES = ("_voltage",)
+PACK_SOC_SUFFIXES = ("_battery", "_soc", "_state_of_charge", "_battery_level")
 
 
 def is_tou_day(d: date, weekdays_only: bool) -> bool:
@@ -137,6 +142,10 @@ class LearnedRuntime:
         self._stale_since: datetime | None = None
         self._stale_alerted = False
         self._published_key: Any = None
+        self.packs: PackTracker | None = None
+        self._packs_blob: dict[str, Any] = {}
+        self._packs_cfg: Any = None
+        self._packs_fails = 0
         self._shadow: dict[str, Any] = {}
         self._grid_kwh: dict[str, float] = {}
         self._dirty = False
@@ -158,6 +167,9 @@ class LearnedRuntime:
             self.learner = Learner.from_dict(blob.get("learner"))
             self.profile = LoadProfile.from_dict(blob.get("profile"), default_kw=self.coord.base_load_kw)
             self.topup_pending = bool(blob.get("topup_pending", False))
+            packs = blob.get("packs")
+            self._packs_blob = packs if isinstance(packs, dict) else {}
+            self.packs, self._packs_cfg = None, None
             if blob.get("bank_full"):
                 self.bank_full = True
                 self._full_at = float(blob.get("full_at") or 100.0)
@@ -202,6 +214,7 @@ class LearnedRuntime:
                 "shadow": self._shadow,
                 "grid_kwh": {k: round(v, 3) for k, v in self._grid_kwh.items()},
             },
+            "packs": self.packs.to_dict() if self.packs is not None else self._packs_blob,
             "saved": datetime.now().isoformat(timespec="seconds"),
         }
 
@@ -334,6 +347,7 @@ class LearnedRuntime:
 
         self.decision = self._decide(now, plan_gauge)
         self._record_shadow(now, gauge)
+        self._tick_packs(now, gauge, grid, load, pv)
 
         if in_control:
             if not starting_blind:
@@ -356,6 +370,78 @@ class LearnedRuntime:
         if hasattr(c, "async_update_listeners") and (key != self._published_key or now.minute % PUBLISH_EVERY_MIN == 0):
             self._published_key = key
             c.async_update_listeners()
+
+    # -----------------------------------------------------------------
+    # Third-party packs (ROADMAP items 1 and 2; optional)
+    # -----------------------------------------------------------------
+    def pack_tracker(self) -> PackTracker | None:
+        """The pack tracker for the configured packs, or None when none are configured."""
+        c = self.coord
+        ids = c.pack_current_entities
+        if not ids:
+            return None
+        cfg = (tuple(ids), c.capacity_v_high, c.capacity_v_low, c.pack_capacity_ah)
+        if self.packs is None or self._packs_cfg != cfg:
+            blob = self.packs.to_dict() if self.packs is not None else self._packs_blob
+            self.packs = PackTracker.from_dict(blob, ids, c.capacity_v_high, c.capacity_v_low,
+                                               c.pack_capacity_ah)
+            self._packs_cfg = cfg
+        return self.packs
+
+    def sibling(self, current_id: str, suffixes: tuple[str, ...]) -> str | None:
+        """A sensor of the same pack, by name: sensor.x_current -> sensor.x_voltage."""
+        if not current_id.endswith("_current"):
+            return None
+        base = current_id[: -len("_current")]
+        for suffix in suffixes:
+            if self.hass.states.get(base + suffix) is not None:
+                return base + suffix
+        return None
+
+    def bus_voltage(self) -> float | None:
+        """The configured bus voltage sensor, else the mean of the packs' own voltages."""
+        c = self.coord
+        if c.bus_voltage_entity:
+            return self._float_state(c.bus_voltage_entity)
+        vals = []
+        for p in c.pack_current_entities:
+            e = self.sibling(p, PACK_VOLTAGE_SUFFIXES)
+            v = self._float_state(e) if e else None
+            if v is not None:
+                vals.append(v)
+        return sum(vals) / len(vals) if vals else None
+
+    def pack_current(self, entity_id: str) -> float | None:
+        """A pack's current in amps, positive into the pack."""
+        val = self._float_state(entity_id)
+        if val is None:
+            return None
+        st = self.hass.states.get(entity_id)
+        unit = str((getattr(st, "attributes", None) or {}).get("unit_of_measurement", "A")).strip().lower()
+        if unit == "ma":
+            val /= 1000.0
+        return val if self.coord.pack_current_charge_positive else -val
+
+    def _tick_packs(self, now: datetime, gauge: float | None, grid: float | None,
+                    load: float | None, pv: float) -> None:
+        try:
+            tracker = self.pack_tracker()
+            if tracker is None:
+                return
+            currents = {p: self.pack_current(p) for p in tracker.packs}
+            battery_ac = None if None in (grid, load) else load - grid - (pv or 0.0)
+            if tracker.tick(now, gauge, self.bus_voltage(), currents, battery_ac):
+                pt = tracker.points[-1]
+                _LOGGER.info("Pack capacity run recorded (%.1f-%.1f V, %.1f h, %.2f kWh AC): %s",
+                             pt["v_high"], pt["v_low"], pt["hours"], pt["ac_kwh"],
+                             ", ".join("%s %.1f Ah" % (k, v) for k, v in pt["ah"].items()))
+                self.hass.async_create_task(self.async_save())
+            self._dirty = True
+            self._packs_fails = 0
+        except Exception:  # noqa: BLE001 - pack tracking must never disturb the planner
+            self._packs_fails += 1
+            if self._packs_fails == 1 or self._packs_fails % 60 == 0:
+                _LOGGER.exception("Pack tracking failed (%d in a row)", self._packs_fails)
 
     # -----------------------------------------------------------------
     # Staleness (ROADMAP item 4)

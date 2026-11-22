@@ -595,3 +595,156 @@ class TestHandoverRecord:
         world.values["sensor.gauge"] = (3, "%")
         run(rt, datetime(2026, 11, 21, 18, 0), 5)
         assert "handover_at" not in rt.daily_summary()
+
+
+PACK_IDS = ["sensor.v1_current", "sensor.v2_current"]
+
+
+def _pack_runtime(**overrides):
+    from custom_components.solarseed_peak_shaver.const import CONF_PACK_CURRENT_ENTITIES
+
+    cfg = {CONF_PACK_CURRENT_ENTITIES: list(PACK_IDS)}
+    cfg.update(overrides)
+    rt, coord, world = make_runtime(**cfg)
+    world.values.update({
+        "sensor.v1_current": (-20.0, "A"), "sensor.v2_current": (-22.0, "A"),
+        "sensor.v1_voltage": (53.9, "V"), "sensor.v2_voltage": (54.1, "V"),
+        "sensor.v1_battery": (61, "%"),
+    })
+    return rt, coord, world
+
+
+def _anchor(rt, world, t):
+    world.values["sensor.gauge"] = (99, "%")
+    run(rt, t, 1)
+    world.values["sensor.gauge"] = (100, "%")
+    run(rt, t + timedelta(minutes=1), 1)
+
+
+class TestPacksInRuntime:
+    """ROADMAP items 1 and 2, through the minute tick."""
+
+    def test_nothing_without_pack_sensors(self):
+        rt, coord, world = make_runtime()
+        run(rt, datetime(2026, 11, 21, 12, 0), 5)
+        assert rt.pack_tracker() is None
+        assert rt.dump_state()["packs"] == {}
+
+    def test_counts_from_the_full_anchor(self):
+        rt, coord, world = _pack_runtime()
+        t = datetime(2026, 11, 21, 12, 0)
+        _anchor(rt, world, t)
+        world.values["sensor.gauge"] = (95, "%")
+        run(rt, t + timedelta(minutes=2), 60)
+        tr = rt.pack_tracker()
+        assert tr.estimate_pct("sensor.v1_current") == pytest.approx(80.0, abs=0.5)
+        assert tr.estimate_pct("sensor.v2_current") == pytest.approx(78.0, abs=0.5)
+
+    def test_sign_option_for_packs_that_report_discharge_as_positive(self):
+        from custom_components.solarseed_peak_shaver.const import CONF_PACK_CURRENT_CHARGE_POSITIVE
+
+        rt, coord, world = _pack_runtime(**{CONF_PACK_CURRENT_CHARGE_POSITIVE: False})
+        world.values["sensor.v1_current"] = (20.0, "A")
+        assert rt.pack_current("sensor.v1_current") == -20.0
+
+    def test_milliamps(self):
+        rt, coord, world = _pack_runtime()
+        world.values["sensor.v1_current"] = (-1500, "mA")
+        assert rt.pack_current("sensor.v1_current") == pytest.approx(-1.5)
+
+    def test_bus_voltage_from_the_packs_or_the_option(self):
+        from custom_components.solarseed_peak_shaver.const import CONF_BUS_VOLTAGE_ENTITY
+
+        rt, coord, world = _pack_runtime()
+        assert rt.bus_voltage() == pytest.approx(54.0)
+        rt2, coord2, world2 = _pack_runtime(**{CONF_BUS_VOLTAGE_ENTITY: "sensor.bus"})
+        world2.values["sensor.bus"] = (52.2, "V")
+        assert rt2.bus_voltage() == pytest.approx(52.2)
+
+    def test_sibling_lookup(self):
+        rt, coord, world = _pack_runtime()
+        assert rt.sibling("sensor.v1_current", ("_battery", "_soc")) == "sensor.v1_battery"
+        assert rt.sibling("sensor.v2_current", ("_battery", "_soc")) is None
+        assert rt.sibling("sensor.odd_name", ("_voltage",)) is None
+
+    def test_a_capacity_run_through_the_runtime(self):
+        rt, coord, world = _pack_runtime()
+        t = datetime(2026, 11, 21, 12, 0)
+        _anchor(rt, world, t)
+        v = [54.2]
+
+        def falling(i, now):
+            v[0] -= 0.01
+            world.values["sensor.v1_voltage"] = (v[0], "V")
+            world.values["sensor.v2_voltage"] = (v[0], "V")
+            world.values["sensor.gauge"] = (max(4, 99 - i // 4), "%")
+            world.values["sensor.load"] = (1500, "W")
+
+        run(rt, t + timedelta(minutes=2), 400, falling)
+        pts = rt.pack_tracker().points
+        assert len(pts) == 1
+        assert pts[0]["ah"]["sensor.v1_current"] == pytest.approx(50.0, abs=0.5)
+        assert pts[0]["ac_kwh"] == pytest.approx(3.75, abs=0.1)        # 1.5 kW for 2.5 h
+
+    def test_pack_state_survives_a_restart(self):
+        rt, coord, world = _pack_runtime()
+        t = datetime(2026, 11, 21, 12, 0)
+        _anchor(rt, world, t)
+        run(rt, t + timedelta(minutes=2), 30)
+        rt2, coord2, world2 = _pack_runtime()
+        rt2.load_state(rt.dump_state())
+        assert rt2.pack_tracker().anchor_at == rt.pack_tracker().anchor_at
+        assert rt2.pack_tracker().out_ah["sensor.v1_current"] == pytest.approx(10.0, abs=0.1)
+
+    def test_a_pack_failure_never_stops_the_planner(self):
+        rt, coord, world = _pack_runtime(planner="learned")
+        rt.pack_tracker = MagicMock(side_effect=RuntimeError("boom"))
+        run(rt, datetime(2026, 11, 16, 21, 0), 3)
+        assert rt.decision is not None and rt._tick_fails == 0
+        assert fired(coord)[-1] == EVENT_CHARGE_START
+
+
+class TestPackSensors:
+    def _sensors(self, rt, coord):
+        from custom_components.solarseed_peak_shaver.sensor import PACK_CAPACITY, PACK_SOC, PackSensor
+
+        entry = coord.entry
+        return (PackSensor(coord, entry, "sensor.v1_current", PACK_SOC),
+                PackSensor(coord, entry, "sensor.v1_current", PACK_CAPACITY))
+
+    def test_names_ids_and_values(self):
+        rt, coord, world = _pack_runtime()
+        soc, cap = self._sensors(rt, coord)
+        assert soc._attr_name == "V1 Charge Estimate"
+        assert cap._attr_name == "V1 Ah Between 53.0 And 51.5 V"
+        assert soc._attr_unique_id == "test_entry_id_pack_v1_current_charge_estimate"
+        assert soc.native_value is None and cap.native_value is None      # no anchor, no run yet
+        t = datetime(2026, 11, 21, 12, 0)
+        _anchor(rt, world, t)
+        world.values["sensor.gauge"] = (95, "%")
+        run(rt, t + timedelta(minutes=2), 30)
+        assert soc.native_value == pytest.approx(90.0, abs=0.5)
+        attrs = soc.extra_state_attributes
+        assert attrs["bms_percent"] == 61.0 and attrs["bms_entity"] == "sensor.v1_battery"
+        assert attrs["ah_out_since_full"] == pytest.approx(10.0, abs=0.1)
+        assert cap.extra_state_attributes["run"]["state"] == "armed"
+
+    def test_setup_adds_two_sensors_per_pack(self):
+        import asyncio
+
+        from custom_components.solarseed_peak_shaver import sensor as sensor_mod
+        from custom_components.solarseed_peak_shaver.const import DOMAIN
+
+        rt, coord, world = _pack_runtime()
+        coord.hass.data = {DOMAIN: {coord.entry.entry_id: coord}}
+        added = []
+        asyncio.run(sensor_mod.async_setup_entry(coord.hass, coord.entry, added.extend))
+        packs = [e for e in added if isinstance(e, sensor_mod.PackSensor)]
+        assert len(packs) == 4
+
+    def test_friendly_name_is_used_for_the_label(self):
+        from custom_components.solarseed_peak_shaver.sensor import pack_label
+
+        rt, coord, world = _pack_runtime()
+        coord.hass.states.get = lambda e: SimpleNamespace(state="1", attributes={"friendly_name": "Vatrer 3 Current"})
+        assert pack_label(coord.hass, "sensor.whatever_current") == "Vatrer 3"

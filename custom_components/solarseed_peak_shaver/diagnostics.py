@@ -115,5 +115,14 @@ async def async_get_config_entry_diagnostics(
             "today": runtime.daily_summary(),
             "last_backfill": runtime.last_backfill,
         }
+        tracker = runtime.pack_tracker()
+        if tracker is not None:
+            result["packs"] = {
+                "current_entities": tracker.packs,
+                "bus_voltage": runtime.bus_voltage(),
+                "bus_voltage_entity": coordinator.bus_voltage_entity or None,
+                "charge_estimate_pct": {p: tracker.estimate_pct(p) for p in tracker.packs},
+                "tracker": tracker.to_dict(),
+            }
 
     return result

@@ -24,6 +24,7 @@ _HA_MODULES = [
     "homeassistant.helpers.update_coordinator",
     "homeassistant.helpers.selector",
     "homeassistant.helpers.entity_platform",
+    "homeassistant.helpers.device_registry",
     "homeassistant.components",
     "homeassistant.components.button",
     "homeassistant.components.sensor",
@@ -57,8 +58,14 @@ def install_ha_mocks() -> None:
 
     ha_config_entries = sys.modules["homeassistant.config_entries"]
     ha_config_entries.ConfigEntry = MagicMock
-    ha_config_entries.ConfigFlow = MagicMock
-    ha_config_entries.OptionsFlow = MagicMock
+    class _FakeFlow:                    # plain bases so the flows' own methods run in tests
+        def __init_subclass__(cls, **kwargs):
+            super().__init_subclass__()
+
+    ha_config_entries.ConfigFlow = _FakeFlow
+    ha_config_entries.OptionsFlow = type("_FakeOptionsFlow", (), {})
+    # "from homeassistant import config_entries" must find this module, not a mock attribute
+    sys.modules["homeassistant"].config_entries = ha_config_entries
 
     ha_helpers_event = sys.modules["homeassistant.helpers.event"]
     ha_helpers_event.async_track_state_change_event = MagicMock()
@@ -93,7 +100,10 @@ def install_ha_mocks() -> None:
 
     # Sensor / Button entity bases
     ha_sensor = sys.modules["homeassistant.components.sensor"]
-    ha_sensor.SensorEntity = MagicMock
+    class _FakeSensorEntity:            # a plain base, so entity attributes can be set and read
+        pass
+
+    ha_sensor.SensorEntity = _FakeSensorEntity
     ha_sensor.SensorDeviceClass = MagicMock()
     ha_sensor.SensorDeviceClass.ENERGY = "energy"
     ha_sensor.SensorDeviceClass.POWER = "power"
@@ -111,6 +121,9 @@ def install_ha_mocks() -> None:
     class _FakeCoordinatorEntity:
         def __init__(self, coordinator):
             self.coordinator = coordinator
+
+        def __class_getitem__(cls, item):
+            return cls
 
     ha_update_coordinator.CoordinatorEntity = _FakeCoordinatorEntity
 

@@ -33,6 +33,7 @@ from .const import (
     VERSION,
 )
 from .coordinator import PeakShaverCoordinator
+from .learned_runtime import PACK_SOC_SUFFIXES
 
 SENSOR_DESCRIPTIONS: dict[str, dict] = {
     SENSOR_TARGET_SOC: {
@@ -114,10 +115,15 @@ async def async_setup_entry(
     """Set up sensor entities from a config entry."""
     coordinator: PeakShaverCoordinator = hass.data[DOMAIN][entry.entry_id]
 
-    entities = [
+    entities: list = [
         PeakShaverSensor(coordinator, entry, sensor_key, desc)
         for sensor_key, desc in SENSOR_DESCRIPTIONS.items()
     ]
+    # Optional third-party pack sensors (ROADMAP items 1 and 2), one pair per pack.
+    # A pack added in the options appears after the next restart.
+    for current_id in coordinator.pack_current_entities:
+        entities.append(PackSensor(coordinator, entry, current_id, PACK_SOC))
+        entities.append(PackSensor(coordinator, entry, current_id, PACK_CAPACITY))
     async_add_entities(entities)
 
 
@@ -317,3 +323,114 @@ class PeakShaverSensor(CoordinatorEntity[PeakShaverCoordinator], SensorEntity):
             }
 
         return None
+
+
+PACK_SOC = "charge_estimate"
+PACK_CAPACITY = "capacity_ah"
+
+
+def pack_label(hass: HomeAssistant, current_id: str) -> str:
+    """A pack's name from its current sensor: its friendly name without "Current"."""
+    st = hass.states.get(current_id) if hass is not None else None
+    name = str((getattr(st, "attributes", None) or {}).get("friendly_name", "") or "").strip()
+    if name.lower().endswith(" current"):
+        name = name[: -len(" current")].strip()
+    if not name:
+        obj = current_id.split(".", 1)[-1]
+        if obj.endswith("_current"):
+            obj = obj[: -len("_current")]
+        name = obj.replace("_", " ").strip().title()
+    return name
+
+
+class PackSensor(CoordinatorEntity[PeakShaverCoordinator], SensorEntity):
+    """Charge estimate or capacity trend for one third-party pack."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = None
+
+    def __init__(self, coordinator: PeakShaverCoordinator, entry: ConfigEntry, current_id: str,
+                 kind: str) -> None:
+        super().__init__(coordinator)
+        self._current_id = current_id
+        self._kind = kind
+        label = pack_label(coordinator.hass, current_id)
+        obj = current_id.split(".", 1)[-1]
+        self._attr_unique_id = f"{entry.entry_id}_pack_{obj}_{kind}"
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        if kind == PACK_SOC:
+            self._attr_name = f"{label} Charge Estimate"
+            self._attr_icon = "mdi:battery-sync-outline"
+            self._attr_native_unit_of_measurement = "%"
+        else:
+            self._attr_name = "%s Ah Between %.1f And %.1f V" % (
+                label, coordinator.capacity_v_high, coordinator.capacity_v_low)
+            self._attr_icon = "mdi:battery-heart-outline"
+            self._attr_native_unit_of_measurement = "Ah"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name=NAME,
+            manufacturer="Johnny Solarseed",
+            model="Peak Shaver",
+            sw_version=VERSION,
+            entry_type=DeviceEntryType.SERVICE,
+        )
+
+    def _tracker(self):
+        runtime = getattr(self.coordinator, "learned", None)
+        if runtime is None:
+            return None, None
+        try:
+            return runtime, runtime.pack_tracker()
+        except Exception:  # noqa: BLE001
+            return runtime, None
+
+    @property
+    def native_value(self) -> float | None:
+        _, tracker = self._tracker()
+        if tracker is None:
+            return None
+        if self._kind == PACK_SOC:
+            val = tracker.estimate_pct(self._current_id)
+            return round(val, 1) if val is not None else None
+        val = tracker.latest_ah(self._current_id)
+        return round(val, 1) if val is not None else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        runtime, tracker = self._tracker()
+        if tracker is None:
+            return None
+        p = self._current_id
+        if self._kind == PACK_SOC:
+            bms_id = runtime.sibling(p, PACK_SOC_SUFFIXES)
+            bms = runtime._float_state(bms_id) if bms_id else None
+            return {
+                "ah_out_since_full": (round(tracker.out_ah[p], 2) if p in tracker.out_ah else None),
+                "capacity_ah": tracker.capacity_ah,
+                "full_anchor_at": tracker.anchor_at,
+                "gap_minutes_since_full": round(tracker.gap_min.get(p, 0.0), 1),
+                "bms_percent": bms,
+                "bms_entity": bms_id,
+                "current_entity": p,
+            }
+        hist = tracker.history(p)
+        last = next((pt for pt in reversed(tracker.points)
+                     if p in pt.get("ah", {}) and pt.get("v_high") == tracker.v_high
+                     and pt.get("v_low") == tracker.v_low), None)
+        attrs: dict[str, Any] = {
+            "v_high": tracker.v_high,
+            "v_low": tracker.v_low,
+            "history": hist,
+            "run": tracker.run_status(),
+            "current_entity": p,
+        }
+        if last is not None:
+            attrs.update({
+                "last_run_start": last.get("start"),
+                "last_run_end": last.get("end"),
+                "last_run_hours": last.get("hours"),
+                "last_run_ac_kwh": last.get("ac_kwh"),
+                "last_run_mean_kw": last.get("mean_kw"),
+            })
+        return attrs

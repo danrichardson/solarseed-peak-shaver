@@ -14,6 +14,9 @@ from .const import (
     CONF_BASE_LOAD,
     CONF_BATTERY_CAPACITY,
     CONF_BATTERY_SOC_ENTITY,
+    CONF_BUS_VOLTAGE_ENTITY,
+    CONF_CAPACITY_V_HIGH,
+    CONF_CAPACITY_V_LOW,
     CONF_CHARGE_THRESHOLD,
     CONF_FULL_CHARGE_MONTHS,
     CONF_GAUGE_ENTITY,
@@ -24,6 +27,9 @@ from .const import (
     CONF_MIDPEAK_START,
     CONF_NOTIFICATIONS_ENABLED,
     CONF_NOTIFY_ENTITY,
+    CONF_PACK_CAPACITY_AH,
+    CONF_PACK_CURRENT_CHARGE_POSITIVE,
+    CONF_PACK_CURRENT_ENTITIES,
     CONF_PEAK_END,
     CONF_PEAK_START,
     CONF_PLANNER,
@@ -43,12 +49,16 @@ from .const import (
     CONF_WEEKDAYS_ONLY,
     DEFAULT_BASE_LOAD,
     DEFAULT_BATTERY_CAPACITY,
+    DEFAULT_CAPACITY_V_HIGH,
+    DEFAULT_CAPACITY_V_LOW,
     DEFAULT_CHARGE_THRESHOLD,
     DEFAULT_FULL_CHARGE_MONTHS,
     DEFAULT_GAUGE_FLOOR,
     DEFAULT_LOAD_QUANTILE,
     DEFAULT_MIDPEAK_START,
     DEFAULT_NOTIFICATIONS_ENABLED,
+    DEFAULT_PACK_CAPACITY_AH,
+    DEFAULT_PACK_CURRENT_CHARGE_POSITIVE,
     DEFAULT_PEAK_END,
     DEFAULT_PEAK_START,
     DEFAULT_PLANNER,
@@ -298,10 +308,16 @@ class PeakShaverOptionsFlow(config_entries.OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
         """Manage the options."""
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            v_high = user_input.get(CONF_CAPACITY_V_HIGH, DEFAULT_CAPACITY_V_HIGH)
+            v_low = user_input.get(CONF_CAPACITY_V_LOW, DEFAULT_CAPACITY_V_LOW)
+            if float(v_low) >= float(v_high):
+                errors[CONF_CAPACITY_V_LOW] = "invalid_voltage_range"
+            else:
+                return self.async_create_entry(title="", data=user_input)
 
-        current = {**self.config_entry.data, **self.config_entry.options}
+        current = {**self.config_entry.data, **self.config_entry.options, **(user_input or {})}
 
         data_schema = vol.Schema(
             {
@@ -515,10 +531,56 @@ class PeakShaverOptionsFlow(config_entries.OptionsFlow):
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
+                # --- Third-party packs (all optional) ---
+                vol.Optional(
+                    CONF_PACK_CURRENT_ENTITIES,
+                    description={"suggested_value": current.get(CONF_PACK_CURRENT_ENTITIES, [])},
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor", multiple=True)
+                ),
+                vol.Required(
+                    CONF_PACK_CURRENT_CHARGE_POSITIVE,
+                    default=current.get(
+                        CONF_PACK_CURRENT_CHARGE_POSITIVE, DEFAULT_PACK_CURRENT_CHARGE_POSITIVE
+                    ),
+                ): selector.BooleanSelector(),
+                vol.Optional(
+                    CONF_BUS_VOLTAGE_ENTITY,
+                    description={"suggested_value": current.get(CONF_BUS_VOLTAGE_ENTITY, "")},
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                ),
+                vol.Required(
+                    CONF_PACK_CAPACITY_AH,
+                    default=current.get(CONF_PACK_CAPACITY_AH, DEFAULT_PACK_CAPACITY_AH),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1, max=2000, step=1, unit_of_measurement="Ah",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_CAPACITY_V_HIGH,
+                    default=current.get(CONF_CAPACITY_V_HIGH, DEFAULT_CAPACITY_V_HIGH),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=1000, step=0.1, unit_of_measurement="V",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_CAPACITY_V_LOW,
+                    default=current.get(CONF_CAPACITY_V_LOW, DEFAULT_CAPACITY_V_LOW),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=1000, step=0.1, unit_of_measurement="V",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
             }
         )
 
-        return self.async_show_form(step_id="init", data_schema=data_schema)
+        return self.async_show_form(step_id="init", data_schema=data_schema, errors=errors)
 
 
 def _as_csv(value: Any) -> str:
