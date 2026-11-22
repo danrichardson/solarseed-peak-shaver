@@ -31,21 +31,56 @@ operating notes: `docs/HANDOFF.md`.
    or stop a charge (HANDOFF, step 5).
 6. **Dashboard:** the voltage curve of the latest run-down, energy per gauge band, the
    capacity trend, and the planner's prediction against what happened.
+7. **Utility holidays.** Today a TOU day is any weekday (`weekdays_only`), so on a
+   utility holiday both planners still charge overnight for it, run on battery through
+   "mid-peak" and "peak", and score it as a TOU day; the learned load profile also takes
+   that day's unusual load as a normal weekday. PGE Time of Day treats six holidays as
+   off-peak all day: New Year's Day (Jan 1), Memorial Day (last Monday in May),
+   Independence Day (Jul 4), Labor Day (first Monday in September), Thanksgiving (fourth
+   Thursday in November) and Christmas (Dec 25); a holiday on a Saturday moves to the
+   Friday before, one on a Sunday to the Monday after
+   (portlandgeneral.com/about/info/pricing-plans/time-of-day). `scripts/backtest.py`
+   already has a hard-coded list for 2025-2026.
+   - One `is_tou_day(date)` used by both planners, the scorecard and the load profile:
+     a weekday that is not a holiday. A holiday is handled like a weekend day, including
+     the evening before it.
+   - First version: PGE only. The six rules and the weekend shift computed in code
+     (no hard-coded year list), one on/off option. Write the rules as data (fixed date,
+     nth or last weekday of a month, observed-day shift) so the generic version below
+     only adds a way to enter them.
+   - Later, before any public release: the rules as a text option, for example
+     `01-01`, `11-thu-4`, `05-mon-last` and `sat->fri, sun->mon`, with presets (PGE,
+     US federal) that fill the field, plus one-off dates. A Home Assistant calendar
+     entity could add one-offs, but utility holidays differ from public holidays (PGE
+     has 6, US federal has 11), so rules stay the default.
+   - Test dates: 2026 Jul 4 is a Saturday (holiday Fri Jul 3); 2027 Jul 4 is a Sunday
+     (Mon Jul 5); 2027 Dec 25 is a Saturday (Fri Dec 24); 2028 Jan 1 is a Saturday,
+     so the holiday is Fri 2027-12-31, in the year before.
+   - Show it: a `holiday_today` / `holiday_tomorrow` attribute and the next holiday on
+     the Learned Plan sensor.
+8. **Tariff as data (before any public release; not needed while it runs here).** The
+   period hours are three options
+   (`midpeak_start_hour`, `peak_start_hour`, `peak_end_hour`) and the prices are not
+   in the integration at all. For other utilities: a tariff of named periods per day
+   type (weekday, weekend, holiday) with prices, optional seasons (many utilities
+   change peak hours or prices in summer), and the holiday rules from item 7. PGE Time
+   of Day as the first preset. Prices let the scorecard and the handover cost (0.8.0)
+   report dollars, not only kWh.
 
 ## Later
 
-7. **Top-off charging for the third-party packs** (optional hardware; see below). An
+9. **Top-off charging for the third-party packs** (optional hardware; see below). An
    occasional full charge to their reset voltage would resynchronise their counters and
    top-balance their cells. Only worth doing if cell imbalance appears or if the
    counters are wanted for display; the planner does not need them.
-8. **Outage mode.** A switch that tells the integration the grid is down: a higher floor
+10. **Outage mode.** A switch that tells the integration the grid is down: a higher floor
    (keep the small battery from shutting down), generator start and stop reminders by
    phone, and load-shedding hints. Depends on the private outage analysis and on knowing
    what the inverter does below 3 % with no AC input.
-9. **Learn the handover rule.** Whether the 3 % handover is a firmware floor or a per-mode
+11. **Learn the handover rule.** Whether the 3 % handover is a firmware floor or a per-mode
    reserve (findings, low-end test). A run with the reserve at 6 % would tell.
 
-## Top-off charging options for the third-party packs (notes for item 7)
+## Top-off charging options for the third-party packs (notes for item 9)
 
 Why they never reach 100 %: the inverter stops charging when its own battery flips to
 100 % at about 55.4 V (about 3.46 V per cell). The third-party packs reset their counters
