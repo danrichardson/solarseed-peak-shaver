@@ -2,7 +2,19 @@
 
 ## RESUME HERE - low-end test weekend (written Fri 2026-11-20, early morning)
 
-A fresh agent can pick the weekend up from this section alone. Do these in order.
+**Sunday 2026-11-22 update.** The test is over; results are in the weekend checklist and
+the white paper brief (section 11). The handover stayed at gauge 3 % with the reserve at
+1 %. Scheduled on the workstation for 21:00 Sunday (Dan approved):
+`analysis/scripts/sunday_switch.sh` switches the planner to `learned` (via
+`analysis/scripts/switch_planner.py`, which changes nothing else) and deletes the
+temporary automation, with notifies. If the workstation was off at 21:00, run it by hand
+before Monday 06:00, or fall back to PV_PRIORITY at Monday 07:00. Still open for Dan:
+reserve 1 or 2. Feature ideas from all this: `docs/ROADMAP.md`. A private brief for an
+outage and generator analysis is in `analysis/outage/BRIEF.md` (local only).
+
+Friday night update: both workstation jobs were started. Check for an existing
+logger and fresh CSV rows before restarting. The 20:00 snapshot and 21:00 heads-up
+were missed. HA switched to STANDARD at 21:10 and the late check confirmed charging.
 
 **1. Revive the timers on this workstation** (they die with a reboot or a closed session).
 Run each as a background job (Bash `run_in_background`), from the repo root:
@@ -50,11 +62,21 @@ tick it as you go. Every box change gets a notify first (`~/src/notify.sh
 
 | When | Action | Service | Payload |
 |---|---|---|---|
-| Sat ~08:00, after "bank full" and Dan's OK | SOC Low 2 -> 1 | `number/set_value` | `act_soc_low_1.json` |
+| Sat, after charge completion and the start chat | Dan sets SOC Low 2 -> 1; verify readback | - | - |
 | same | run on battery | `select/select_option` | `act_mode_pv_priority.json` |
 | then | tell Dan to switch the heater on; sag checks per checklist | - | - |
 | abort, any time | safe state | `select/select_option` | `act_mode_standard.json` |
 | Sunday, if Dan decides | SOC Low back to 2 | `number/set_value` | `act_soc_low_2.json` |
+
+At the start chat confirm B300 100% and fresh Vatrer currents near zero. The full
+alert can miss completion. Agree which B300 phone alert tells Dan to transfer the
+critical circuits to utility (20% proposed, 10% also available). Start with the
+critical circuits plus the heater. Dan confirms the transfer and leaves just the
+heater on the AC500, with grid input still connected. At the 3% alert Dan returns
+to chat to watch B300 pack voltage, the four Vatrer voltages and AC power. Discuss
+the readings near 1%. The reserve for this run is 1%. Record the load change and
+look for sustained voltage decline under steady load. Early release from grid
+after a voltage-based mode change is an open question.
 
 Sunday: first numbers to Dan; Dan decides SOC Low (1 or 2) and the planner (`learned`
 about 20:00, or fallback PV_PRIORITY Monday 07:00); delete the temporary automation

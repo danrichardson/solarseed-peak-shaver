@@ -6,12 +6,14 @@ Every change on the box is listed here and still gets a notify before it happens
 
 ## What we want to learn
 
-1. How much energy the bank gives from full down to the B300's 3 % (today's handover),
-   then with the B300 parked at 1 %, down to the inverter's own handover at 0 %.
-2. The bus voltage at each of those points, and how much it sags under load.
-3. Whether the AC500 hands the house to the grid cleanly at 0 % with Battery SOC Low
-   set to **1** (no blink, no dark house), and recharges afterwards.
-4. Time and energy to recharge from truly empty to full.
+1. Measure the energy delivered from full to the B300's indicated 3%, and from
+   there to the observed handover or abort.
+2. Find the indicated B300 percentage and pack voltage where voltage starts
+   falling faster under steady load. Record each Vatrer voltage separately.
+3. With reserve set to 1%, observe when grid input picks up the heater load
+   and whether the AC500 output stays on. The critical circuits will be on utility
+   power for this part.
+4. Measure the recharge from the observed endpoint to the inverter stopping.
 
 From these: whether to keep SOC Low at 1, and where the integration's own voltage floor
 goes (expected about 50 V). We are **not** looking for the shutdown voltage, and
@@ -69,9 +71,8 @@ A Vatrer cutting out on its own BMS is **not** an abort: it is safe and recovers
   Approved and installed Wed 2026-11-18 late evening; entity
   `automation.temp_claude_low_end_test_weekend_2026_11_20`, on, inert until Fri 21:00.
   No errors in the log; 20 automations now.
-- [ ] **[Dan]:** confirm the 1500 W heater is on an AC500-backed outlet and safe to
-  run unattended for about 12 hours. Dan plugs it in Saturday morning; Claude sends a
-  reminder notify at 07:15 Saturday (scheduled).
+- [ ] **[Dan] 07:15 Saturday reminder.** Plug the 1500 W heater into its AC500-backed
+  wall outlet and leave it off. Run it only while attended.
 - [x] **[Dan]:** install v0.7.2 in HACS and restart (released Thu night; HACS refused
   the agent's install again). Done Thu night.
 - [x] **[Claude]:** verify 0.7.2 is loaded and no errors. v0.7.2 installed; mode
@@ -79,7 +80,8 @@ A Vatrer cutting out on its own BMS is **not** an abort: it is safe and recovers
   charge and, as designed, fired nothing); SOC Low 2; weekend automation on; no errors
   from the integration (only the known Solcast startup race).
 - [ ] **[Claude] Fri 20:00:** snapshot states, diagnostics and the integration's
-  stored learning (rollback point).
+  stored learning (rollback point). Missed. A later states and diagnostics snapshot
+  is saved locally under `analysis/data/live_changes/*_after_charge_start_2026-11-20.json`.
 
 ## The temporary automation (date-guarded, inert after Mon 2026-11-23 08:00)
 
@@ -95,37 +97,63 @@ Runs on the box whether or not Claude is awake. Each action notifies Dan's phone
 ## Friday 2026-11-20
 
 - [ ] **21:00** [Claude] notify: "starting the weekend test in 10 min, reply stop to cancel".
-- [ ] **21:05** [box] the integration's normal hold fires (TIME_CONTROL). Expected.
-- [ ] **21:10** [box] mode STANDARD. Charging starts.
-- [ ] **21:20** [Claude] check: AC input about 1.5-1.9 kW, gauge rising. Record start
-  gauge, bus voltage, each Vatrer percent.
-- Expect full around 05:00-07:00 Saturday (about 8.5 h to 99 %, then a slower tail;
-  charging stops completely when the B300 flips to 100 %, about 55 V).
+  The workstation missed this reminder window.
+- [x] **21:05** [box] the logbook shows TIME_CONTROL at 21:05:04.
+- [x] **21:10** [box] the temporary automation fired at 21:10:00. The AC500 reported
+  STANDARD at 21:10:04. Recorder shows B300 9%, pack voltage 52.1 V and Vatrers
+  21/7/3/5% at the transition.
+- [x] **21:20** [Claude] checked late at 22:26. Recorder shows B300 12% at 21:20
+  with 2.55 kW AC input and 0.86 kW output. At the live check B300 was 25%,
+  with 2.41 kW input and 0.68 kW output.
+- The early-morning estimate is for B300 99%. On the previous run charging
+  continued for hours at 99%. Use measured charge completion for the start time.
 
 ## Saturday 2026-11-21: run-down
 
-- [ ] **~07:00** [box/Claude] "bank full" notify. Record: time, kWh in (AC input and
-  Vue), bus voltage, each Vatrer percent.
-- [ ] **~08:00** [Dan] approve the run-down start (reply to the notify).
-- [ ] **08:00** [Claude] `number.ac500_battery_range_start` 2 -> **1**.
-- [ ] **08:00** [Claude] mode **PV_PRIORITY** (battery carries the house).
-- [ ] **08:00** [Dan] heater ON (house plus heater about 2.1 kW; solar adds a little).
-  Target: the handover in the evening, roughly 18:00-22:00. If it is running fast or
-  slow, turn the heater off or on; Claude will say which.
+Charge completion confirmed. The minute log first showed B300 99% at 05:42.
+HA reported 100% at 12:33:46 PST. The 12:34 sample showed B300 55.4 V and
+Vatrers 100/90/81/82% at 55.21/55.11/55.25/55.23 V. By 12:47 the AC500
+was passing grid power through to the load, with all four Vatrer currents
+between -1.03 and 0 A. Mode STANDARD, reserve 2%. Bank-full phone alert sent
+for the start chat. Dan confirmed receipt and chose the 20% transfer cue.
+
+- [ ] Verify charge completion from fresh readings: B300 100%, charge currents near
+  zero, and grid input accounting for the house load. Record time, AC input and Vue
+  energy, B300 voltage and each Vatrer's voltage and percentage. The "bank full"
+  alert can miss this if house load exceeds 100 W or completion is after noon.
+- [x] Start approved, monitor logging, phone delivery confirmed. Use the B300 20%
+  alert to transfer the critical circuits and the 3% alert to return to chat.
+- [x] PV_PRIORITY with heater and critical circuits on battery. AC input was zero
+  and output about 1.9 kW after the transfer.
+- [ ] **Dan** sets reserve to **1%** at the unit. Verify the readback. HA reported
+  5% immediately after the mode change (2% during the overnight charge).
+- [ ] At the agreed alert Dan transfers the critical circuits to utility, leaving
+  only the heater on the AC500. Dan confirms the transfer. Record the time and AC
+  output before and after so the load step can be identified in the voltage trace.
+- [ ] At the B300 3% alert Dan returns to chat. Follow B300 pack voltage, gauge,
+  each Vatrer voltage, AC input/output and PV together. Record any steepening
+  under steady load, the first sustained grid draw, and whether the heater lost
+  power. Near 1% discuss the readings together. This run is authorized at 1%
+  reserve; a displayed 0% is a possible observation. The voltage abort stays active.
 - [ ] [Claude] monitor runs every minute and notifies at: B300 20 %, 10 %, 5 %, 3 %,
   1 % (parked), each Vatrer 10 % and 5 %, bus 50.5 / 50.0 / 49.5 / 49.0 / 48.5 V,
   handover, abort threshold, data stale.
-- [ ] **Sag check 1**, bus about 52.5 V: [Dan] heater off 10 min, then on.
+- [x] **Sag check 1** recorded at the 52.5 V cue, plus an earlier comparison near
+  96% B300. Local analysis notes with before/off/after windows and all five
+  voltages: `analysis/data/live_changes/sag_checks_2026-11-21.md`.
 - [ ] **Sag check 2**, when the B300 parks at 1 %: heater off 10 min, then on.
 - [ ] **Sag check 3**, bus about 50 V: heater off 10 min, then on.
 - [ ] **Sag check 4**, bus about 49 V: heater off 10 min, then on.
-- [ ] Old handover point: does the inverter carry on past B300 3 % now? (expected yes)
-- [ ] B300 parks at 1 %: time, bus voltage, Vatrer percents.
+- [x] Grid pickup occurred at 00:57:03 PST Sunday with reserve confirmed at 1%.
+  The AC500 total gauge briefly read 3% and returned to 4% five seconds later.
+  The separate B300 pack gauge held at 4%. The one-minute monitor missed the
+  3% reading. Neither gauge reached 1% on this run.
 - [ ] Any Vatrer BMS cut-out: time, voltage, which pack.
-- [ ] **Handover**: time, bus voltage, B300 percent, each Vatrer percent. Did the house
-  blink? Does AC input carry the load? Expect the AC500 to grid-charge the B300 about
-  7 points at once (seen Thu 11-19 at 3 %: back to 10 % in 26 min), so the gauge will
-  not sit at 0-1 %. The signal is grid input while in PV_PRIORITY (findings section 11).
+- [x] **Handover**: B300 pack 50.6 V; Vatrers 50.74/50.76/50.77/50.75 V at
+  19/4/0/2%. All four last reported discharge current, including pack 3 at 0%.
+  AC input rose from zero to 1.17 kW then 3.40 kW while still in PV_PRIORITY.
+  Output stayed above 1.4 kW at the recorded samples; a sub-sample blink is
+  unverified. Recorder extract: `analysis/data/live_changes/handover_history_2026-11-22.json`.
 - [x] [Dan] approve the automation's handover trigger fix (v2: PV_PRIORITY, gauge
   5 % or less, AC input over 300 W for 2 min). Approved and installed Thu night; the
   automation now sets STANDARD at the handover. v1 kept as
@@ -134,8 +162,8 @@ Runs on the box whether or not Claude is awake. Each action notifies Dan's phone
 
 ## Saturday evening to Sunday: recharge
 
-- [ ] [Claude] mode **STANDARD** right after the handover (charge from empty). Leave
-  SOC Low at 1 for now.
+- [x] Mode **STANDARD** reported at 00:59:09 after the grid pickup. Recharging,
+  with SOC Low still at 1%.
 - [ ] [Claude] record: time and kWh to B300 99 %, to 100 %, to the inverter stopping.
   Expect up to about 20 hours from everything-empty, so done Sunday afternoon.
 - [ ] If charging is still running Sunday 18:00: fine, it is all off-peak; let it finish.
@@ -158,6 +186,9 @@ Runs on the box whether or not Claude is awake. Each action notifies Dan's phone
 - [ ] **07:00** mode PV_PRIORITY (planner or fallback). **21:00** first weekday result.
 - [ ] [Claude] write up in `docs/winter-2026-findings.md` (new section), update
   `docs/battery-bank-methodology.md`, and propose the voltage floor value.
+- [ ] Evaluate whether a voltage-based switch to STANDARD before automatic bypass
+  could reduce the grid energy bought during recovery. This run records the
+  discharge curve. Early return to battery below the recovery level is unverified.
 
 ## After the weekend: what the results feed
 
