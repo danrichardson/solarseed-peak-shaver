@@ -1,6 +1,114 @@
 # Handoff - winter 2026 analysis and rework
 
-## RESUME HERE - low-end test weekend (written Fri 2026-11-20, early morning)
+## RESUME HERE - Sunday 2026-11-22 afternoon: 0.8.0 installed, timers to restart
+
+**State.** v0.8.0 is released (tag `v0.8.0`, GitHub release) and Dan installed it through
+HACS on Sunday afternoon, then restarted HA. Not yet verified by an agent. The planner
+option is still `classic`; the switch to `learned` runs at 21:00 Sunday (approved).
+What 0.8.0 adds: `docs/how-it-works.md`, "0.8.0 additions". The previous session's
+background timers died when its VS Code window closed.
+
+**Step 1 - restart the timers** (each with Bash `run_in_background`, from the repo root).
+First check none is still running: `ps -ef | grep -E "sunday_switch|monday_check|lowend_monitor"`.
+
+1. `bash analysis/scripts/sunday_switch.sh` - waits for 21:00, notifies, switches the
+   planner to `learned`, deletes the weekend test automation, notifies the result.
+   Restartable (markers in `analysis/data/live_changes/.sunday_switch_done/`); does
+   nothing after Mon 06:00. If that window passed without the `planner` marker, the
+   planner is still classic: notify Dan and ask (fallback: PV_PRIORITY at Mon 07:00).
+2. `cd analysis && python scripts/monday_check.py` - waits until Mon 07:10, then prints
+   the planner, the learned decision, the AC500 mode/gauge history since Sunday and any
+   solarseed log lines (read-only). Read the output: the planner must be `learned` and in
+   control, the AC500 should have charged overnight and held until 07:00. Notify Dan
+   (`--event=needs-input`) if not; otherwise one short `task-complete` summary.
+3. `lowend_monitor.py` was started from a console on 11-20 and may have survived. If it
+   is not running and it is before Mon 08:00: check `analysis/data/` for fresh minute-log
+   rows, then `cd analysis && python scripts/lowend_monitor.py 2026-11-23T08:00`.
+
+**Step 2 - verify 0.8.0 on the box** (read-only, before 21:00):
+- `update.solarseed_peak_shaver_update` reports `installed_version` v0.8.0.
+- Diagnostics (`analysis/scripts/ha.py rest /api/diagnostics/config_entry/<entry>`):
+  `learned.battery_data_stale` false, `seconds_since_last_change` small, no
+  `solarseed` errors in `system_log/list`.
+- `cd analysis && python scripts/switch_planner.py learned --dry-run` must print
+  "new option saved at its default" for the eight 0.8.0 options and "other differences:
+  none". (`switch_planner.py` was updated for 0.8.0 today: its new options are absent
+  from the saved options until the form is submitted once. If the dry run reports
+  differences, fix it before 21:00 or the switch fails and notifies.)
+
+Step 2 was done on Sunday right after the restart: v0.8.0 installed, data not stale,
+dry run clean (all eight new options at their defaults, no other differences). It also
+found the bug in step 3a.
+
+**Step 3a - fix first in 0.8.1: false charge at startup.** At the 0.8.0 restart the
+classic planner's first calculation ran before `sensor.available_battery_kwh` had
+loaded, read the battery as 0.0 kWh, logged "[CHARGE 4.1 kWh] Battery: 0.0 kWh" and,
+because 0.8.0's restart rule lets a first calculation start a charge, fired
+`charge_start`. The AC500 went to grid charge; about 2 s later the battery sensor loaded,
+a recalculation fired `charge_stop`, and the mode was back to PV_PRIORITY within 5 s.
+Harmless on a Sunday; on a weekday it flips the inverter twice, and if the battery sensor
+stayed unavailable it could charge at mid-peak price. It also ran on a Sunday although
+`weekdays_only` is on (the startup refresh seems to skip the weekday check; confirm).
+Fix: an unavailable or unknown battery reading is missing, not 0 - no calculation and no
+event (log once); and the restart rule only allows a charge on a real reading. Add a test
+for each, plus one for the weekend check at startup. Evidence: HA logbook and system log
+for 2026-11-22 21:19 UTC.
+
+**Step 3b - this week, a fresh session: 0.8.1 health check and daily message.** Dan
+installs it on an evening after 21:00 when ready (after 3a, a weekday restart is safe).
+Spec agreed with Dan on 2026-11-22:
+- Why: the daily "Grade" notification scores the classic planner's own predictions
+  (battery kWh minimum, solar forecast accuracy, minus 25 for any mid-peak charge), so
+  under the learned planner it grades a plan nobody follows and Dan ignores it.
+- Grade each TOU weekday from the learned runtime's daily summary (grid kWh per price
+  window, predicted vs actual gauge at peak start/end, `handover_at`, `stale_minutes`,
+  inverter command verification). Deterministic first thresholds, as constants:
+  - Good: under 0.2 kWh grid in peak, no handover before 21:00, under 0.5 kWh grid
+    charging in mid-peak, data never frozen over 30 min, every command followed.
+  - Fair: peak covered, but a mid-peak top-up over 0.5 kWh or the predicted gauge at peak
+    end off by more than 10 points.
+  - Poor: over 0.2 kWh grid in peak, data frozen over 60 min, or a command not followed.
+  - Not graded: weekends (and holidays once roadmap item 7 exists).
+- Review needed when: any Poor day in the last 7 TOU days, or 3 non-Good in a row, or
+  the peak-end prediction biased the same way by more than 8 points on average over 7
+  TOU days.
+- Daily notification replaces the grade, one or two lines, ASCII only (the current title
+  has a non-ASCII dash), no message on non-TOU days. Example: "Good - peak on battery,
+  ended at 12 % (predicted 9 %), $0.00 at peak prices. Last 7 weekdays: 6 good, 1 fair."
+  Dollars at PGE Time of Day prices (constants for now: 8.93 / 16.70 / 43.13 cents).
+- A `Solarseed Health` sensor (good / watch / review) with the last 7 days as attributes,
+  and a separate, higher-priority notification only when it changes to review.
+- Store: add a new `health` field to the scorecard; keep the old grade fields (readers use
+  `.get`, no schema bump). Tests with `python -m pytest -q`; branch in a worktree; Dan
+  approves push and release.
+- Then add the review-session section below to the tuning log's first entry.
+
+**Also open.**
+- White paper revision 0.95 (section 11 now has real data): separate session, hand over
+  `docs/whitepaper-brief.md` as written. Revision 1.0 waits for 2-3 weeks with the
+  learned planner in control; section 9 should describe 0.8.0.
+- The week of 11-23 is a poor before/after week: the household's weekday schedule
+  changes from 11-23, and Thu 11-26 is a PGE holiday (off-peak all day) that the
+  integration does not know about yet (roadmap item 7). Evaluate with `replay_cost.py`,
+  prediction error and the per-day targets; leave 11-26 out.
+
+### Standing: review sessions (from 2026-11-22)
+
+The integration cannot tune itself beyond what the learned planner learns, so Dan
+starts a review session when the Health sensor says "review" (after 0.8.1), and one week
+after any algorithm change. In a review session:
+1. Pull the data (diagnostics and `export_history` CSV; raw history if needed) into
+   `analysis/` (local only).
+2. Build the weekly table from the validation plan below: mid-peak and peak grid kWh and
+   dollars per TOU day, prediction error, top-ups, handovers, frozen minutes.
+3. Decide tweaks with Dan; implement on a branch with tests.
+4. Add a dated entry to `docs/tuning-log.md` (create it on first use): what we saw (weekly
+   totals only), what changed and in which version, and next week's result for the
+   previous entry. Weekly totals only; no household detail.
+5. Rebuild the white paper only at milestones (a new algorithm version on the box, or
+   revision 1.0), not weekly.
+
+## Earlier: low-end test weekend (written Fri 2026-11-20, early morning)
 
 **Sunday 2026-11-22 update.** The test is over; results are in the weekend checklist and
 the white paper brief (section 11). The handover stayed at gauge 3 % with the reserve at
