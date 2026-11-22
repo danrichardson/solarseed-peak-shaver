@@ -19,6 +19,18 @@ the two pending sections below have real data.
 
 Length: 12 to 20 pages. Figures and tables numbered and captioned. Page numbers.
 
+**Status (2026-11-22).** A reproducible revision 0.9 already exists: build package in
+`analysis/whitepaper/` (one command, `python analysis/whitepaper/build.py`), output in
+`docs/whitepaper/`, written before the low-end test. Update that package; do not start
+over. The low-end test (weekend of 2026-11-21) is done, so section 11 now has real data:
+make the next revision 0.95. Revision 1.0 still waits for one pending item, a week with
+the learned planner in control (section 10, figure 15).
+
+**Out of scope:** grid-outage resilience and generator planning. That is a separate,
+private planning document for the owner (household loads and habits do not belong in a
+paper with a real name). This paper may mention, in one sentence under open questions,
+that the same measured bank model supports an outage analysis.
+
 ## Who reads it
 
 People who own or build systems like this one: Home Assistant users, off-grid and
@@ -39,6 +51,17 @@ means), and the design that follows (a planner that measures instead of assuming
 4. `docs/how-it-works.md` - how the integration and both planners work.
 5. `analysis/scripts/` - the code behind every number. `analysis/data/raw/` - the data.
 6. `README.md` - what the integration is, for the introduction.
+7. The low-end test: `docs/weekend-test-2026-11-20.md` (what was done, minute by minute)
+   and its data, all local:
+   - `analysis/data/raw/lowend_2026-11-21.csv` - one row a minute, Fri 22:26 to Sun:
+     gauge, mode, reserve, AC in/out, solar, B300 pack voltage, four Vatrer voltages and
+     percents.
+   - `analysis/data/raw/history_lowend_wk1.json`, `_wk2.json`, `_wk3.json` - recorder
+     history at full resolution (about 5 s) for Tue 11-17 to Sun 11-22, including
+     per-pack Vatrer current. Home Assistant deletes this after about 10 days; these
+     files are the only copy.
+   - `analysis/data/live_changes/handover_history_2026-11-22.json` (seconds around the
+     handover) and `sag_checks_2026-11-21.md` (load-step windows).
 
 ## Rules that matter more than polish
 
@@ -51,7 +74,7 @@ means), and the design that follows (a planner that measures instead of assuming
   quoted before anyone knew what the gauge was attached to; a claim that the small
   battery never parks at low charge, overturned by one event found in older data; a
   first cost simulation that created energy from nothing; a physical battery model that
-  failed validation and was replaced by a measured one. A short "what we got wrong and
+  failed validation and was replaced by a measured one; a low-end test planned around "the inverter will run to 1 % once the reserve is 1 %", which it did not; and a voltage floor that was designed before the test showed voltage was nowhere near a cliff. A short "what we got wrong and
   how we noticed" section is required.
 - **Say what is not established.** One house, one winter, one inverter model. The
   sensors do not close an energy balance. The cost replay matches reality to 5-8 % in
@@ -81,13 +104,47 @@ means), and the design that follows (a planner that measures instead of assuming
    tail at the top; charging ends on a voltage event; a percent costs less going in
    than it gives coming out at the low end; the small battery can park at 1 % while
    the others carry the house.
-8. **Voltage: a good anchor, a poor ruler.**
+8. **Voltage: a good anchor, a poor ruler.** Show it with the run-down: from full to
+   the handover the bus fell only from about 53 to 50.6 V under load, smooth, no knee,
+   while the gauge went from 100 to 4 %. Load sag was about 0.25-0.4 V per kW. Voltage
+   marks the ends (the full flip at about 55.4 V; the handover region) and cannot
+   measure the middle. Include the load-step sag measurement.
 9. **The design** - learn the discharge curve, the charge curve and the load profile;
    plan against the tariff windows; the rules in plain words.
 10. **Does it work?** - prediction accuracy against the old model and against a fixed
     corrected constant; the validated battery model; the cost replay by month; the
     first weekday on a full bank. **Pending:** a week with the new planner in control.
-11. **Pending: the low-end test** (weekend of 2026-11-21).
+11. **The low-end test** (weekend of 2026-11-21; numbers below are first-pass, from
+    the minute log and the recorder history; regenerate them):
+    - Full charge Friday night; the B300 read 99 % from early Saturday and flipped to
+      100 % only around midday, with the third-party packs at 100/90/81/82 %.
+    - Run-down on house load plus a heater: 18.7 kWh AC from 100 % to the handover in
+      12 hours. 100 to 21 %: 10.6 kWh (about 0.13 kWh per point). 20 % to the handover:
+      8.1 kWh (about 0.5 per point). The last fifth of the gauge held 43 % of the energy.
+    - The handover happened when the inverter's total gauge first read 3 %, in the same
+      5-second sample as the grid input step, with the reserve set to 1 %. With the
+      reserve at 2 % it has always happened at 3 % too. So lowering the reserve did not
+      move the transfer point; the mechanism (a firmware floor, or a per-mode reserve) is
+      not established. Present this as measured fact plus open question.
+    - No blink in the 5-second data (output stayed at 1.44-1.47 kW). At the handover the
+      inverter grid-charges the small battery to its 10 % recovery level and stays on
+      grid until then (also seen on three weekday evenings); cost implication in peak.
+    - Nothing was physically empty at the handover: 50.6-50.7 V under 1.5 kW, one
+      third-party pack still reading 19 %.
+    - Recharge from the handover: time and energy to full (fill in from the data; it
+      was still running Sunday morning).
+11a. **Battery health and the third-party counters.** Integrating each third-party
+    pack's current over the run-down: 84.5, 89.3, 85.3 and 84.6 Ah delivered, nearly
+    equal, as parallel packs at one voltage should be. Their own percent counters moved
+    80-86 points for that, implying about 104-107 Ah each against 100 Ah nameplate: no
+    sign of capacity loss after about 18 months (inferred, one run, counter-based). But
+    the counters ended at 19/4/0/2 % with the packs at the same voltage: the counters
+    are offset from each other by up to about 19 points and do not converge, because
+    charging stops (small battery flips to 100 % at about 55.4 V) before the packs reach
+    the voltage where their BMS resets to 100 %, and discharge stops (3 % handover) long
+    before the low-voltage point where it would reset to 0 %. Lesson for readers: a
+    third-party pack's percent is a coulomb counter with no recent reference point;
+    trust its current and voltage, not its percent.
 12. **What we got wrong and how we noticed.**
 13. **A method you can reuse** - the principles as a checklist for any system where the
     inverter's percent is the only gauge.
@@ -112,6 +169,13 @@ means), and the design that follows (a planner that measures instead of assuming
 | 13 | A day under the new rules, as a timeline of modes against the price windows | drawn |
 | 14 | Monday 2026-11-16 on a full bank, by price window | 5-minute statistics |
 | 15 | Before and after, per weekday: mid-peak and peak energy through the inverter | **pending** |
+| 16 | **Voltage curves of the run-down:** B300 pack voltage and the four third-party pack voltages against energy delivered since full (x axis kWh, not time), with the gauge on a second axis and the 100/20/10/5/3 % points marked | minute CSV, recorder history |
+| 17 | **Voltage against gauge, charge and discharge overlaid** (Friday-Saturday charge, Saturday run-down): the hysteresis between charging and discharging voltage at the same percent | minute CSV |
+| 18 | **Load-step sag:** voltage during the heater on/off windows, at about 96 %, 52.5 V and lower; volts per kW | `sag_checks_2026-11-21.md` windows, minute CSV |
+| 19 | **Energy per gauge point by band** from the clean full run-down (bars for 100-80, 80-60, ... 20-10, 10-handover), against the assumed 0.235 | minute CSV |
+| 20 | **The handover, seconds:** gauge, AC input, AC output, bus voltage from one minute before to five minutes after | `handover_history_2026-11-22.json` |
+| 21 | **Third-party packs: Ah delivered against what their counters say** (equal bars of Ah; counters ending 19/4/0/2 %) | recorder history (per-pack current) |
+| 22 | **The full charge:** charge power and the five voltages against time, showing the 99 % plateau and the 100 % flip where charging ends | minute CSV, recorder history |
 
 One accent color for "what we assumed" and one for "what we measured", used the same
 way in every chart. Units on every axis, local time, color-blind-safe. Tables for
@@ -134,7 +198,9 @@ section 9 (the design) and check each row against the code before quoting it.
 | Releasing the hold spends off-peak battery that is then bought back in mid-peak (11-18) | Hold until 07:00 after the night charge | Rule | `planner.decide` rule 3 |
 | Mode commands can be lost | Verify from power sensors, resend 3 times, then alert | Measured | `learned_runtime._act` |
 | In deep winter a full charge every night beats sizing | Full-charge months | Replay on a validated bank model | `full_charge_months` option |
-| The low end is worth twice as much after a full charge (11-17) | Pending: energy counted from the full anchor, voltage floor | Weekend test 11-21 | proposed |
+| The low end is worth more than twice as much after a full charge (11-17; 11-21: 0.5 vs 0.13 kWh per point) | Learned discharge curve learns from full-anchored run-downs; pending: energy counted from the full anchor | Weekend test 11-21 | `learning.Curve` (exists); counter proposed |
+| Lowering the inverter's reserve from 2 to 1 % did not move the handover; it is at gauge 3 % (11-21) | The planner's floor stays at gauge 3 %; the voltage floor is dropped (voltage was nowhere near a cliff at the handover) | Measured | `gauge_floor` option (exists) |
+| Third-party pack percents drift apart and never reset in this charge regime (11-21) | The planner never uses third-party percents; only the inverter's gauge, power and voltage | Design rule | n/a |
 | The battery data path froze for up to 4 days (2025-2026) | Pending: staleness check; inverter SOC Low kept as backstop | Reliability record | proposed |
 | A parked gauge would credit hours of energy to one point | 0.7.1: cap one point at 2 h / 1 kWh | Guard on learning | `Learner.sample` (0.7.1, live since 11-19) |
 | A restart released the evening hold (11-16) | 0.7.1: the first calculation after a start changes nothing | Rule | `coordinator._events_armed` |
