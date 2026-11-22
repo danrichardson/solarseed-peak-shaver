@@ -297,6 +297,7 @@ class PeakShaverSensor(CoordinatorEntity[PeakShaverCoordinator], SensorEntity):
             attrs["bank_full"] = runtime.bank_full
             attrs["weekly_topup_pending"] = runtime.topup_pending
             attrs["power_sensors_configured"] = runtime.sensors_configured
+            attrs["battery_data_stale"] = runtime.data_stale
             return attrs
 
         if runtime is not None and self._sensor_key == SENSOR_LEARNED_ENERGY:

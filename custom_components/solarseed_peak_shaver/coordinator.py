@@ -18,6 +18,9 @@ from .const import (
     CONF_BASE_LOAD,
     CONF_BATTERY_CAPACITY,
     CONF_BATTERY_SOC_ENTITY,
+    CONF_BUS_VOLTAGE_ENTITY,
+    CONF_CAPACITY_V_HIGH,
+    CONF_CAPACITY_V_LOW,
     CONF_CHARGE_THRESHOLD,
     CONF_FULL_CHARGE_MONTHS,
     CONF_GAUGE_ENTITY,
@@ -28,11 +31,16 @@ from .const import (
     CONF_MIDPEAK_START,
     CONF_NOTIFICATIONS_ENABLED,
     CONF_NOTIFY_ENTITY,
+    CONF_PACK_CAPACITY_AH,
+    CONF_PACK_CURRENT_CHARGE_POSITIVE,
+    CONF_PACK_CURRENT_ENTITIES,
     CONF_PEAK_END,
+    CONF_PEAK_MARGIN_KWH,
     CONF_PEAK_START,
     CONF_PLANNER,
     CONF_PV_POWER_ENTITY,
     CONF_MIN_SAFE_SOC,
+    CONF_RECOVERY_PCT,
     CONF_SCHEDULE_HOURS,
     CONF_SEASONAL_MONTHS,
     CONF_SEASONAL_PRESERVATION,
@@ -40,10 +48,13 @@ from .const import (
     CONF_SOLAR_CONFIDENCE,
     CONF_SOLAR_FORECAST_ENTITY,
     CONF_SOLAR_FORECAST_TOMORROW_ENTITY,
+    CONF_STALE_MINUTES,
     CONF_VERBOSE_LOGGING,
     CONF_WEEKDAYS_ONLY,
     DEFAULT_BASE_LOAD,
     DEFAULT_BATTERY_CAPACITY,
+    DEFAULT_CAPACITY_V_HIGH,
+    DEFAULT_CAPACITY_V_LOW,
     DEFAULT_CHARGE_THRESHOLD,
     DEFAULT_FULL_CHARGE_MONTHS,
     DEFAULT_GAUGE_FLOOR,
@@ -51,15 +62,20 @@ from .const import (
     DEFAULT_MIDPEAK_START,
     DEFAULT_NOTIFICATIONS_ENABLED,
     DEFAULT_NOTIFY_ENTITY,
+    DEFAULT_PACK_CAPACITY_AH,
+    DEFAULT_PACK_CURRENT_CHARGE_POSITIVE,
     DEFAULT_PEAK_END,
+    DEFAULT_PEAK_MARGIN_KWH,
     DEFAULT_PEAK_START,
     DEFAULT_PLANNER,
     DEFAULT_MIN_SAFE_SOC,
+    DEFAULT_RECOVERY_PCT,
     DEFAULT_SCHEDULE_HOURS,
     DEFAULT_SEASONAL_MONTHS,
     DEFAULT_SEASONAL_PRESERVATION,
     DEFAULT_SOLAR_ACTUAL_ENTITY,
     DEFAULT_SOLAR_CONFIDENCE,
+    DEFAULT_STALE_MINUTES,
     DEFAULT_VERBOSE_LOGGING,
     DEFAULT_WEEKDAYS_ONLY,
     DOMAIN,
@@ -281,6 +297,60 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
     @property
     def gauge_floor(self) -> float:
         return self._num_cfg(CONF_GAUGE_FLOOR, DEFAULT_GAUGE_FLOOR, 0.0, 50.0)
+
+    @property
+    def recovery_pct(self) -> float:
+        """Gauge the inverter grid-charges back to after a handover at the floor."""
+        return self._num_cfg(CONF_RECOVERY_PCT, DEFAULT_RECOVERY_PCT, 0.0, 100.0)
+
+    @property
+    def peak_margin_kwh(self) -> float:
+        """Reserve the learned planner keeps above the floor at peak end."""
+        return self._num_cfg(CONF_PEAK_MARGIN_KWH, DEFAULT_PEAK_MARGIN_KWH, 0.0, 20.0)
+
+    @property
+    def stale_minutes(self) -> float:
+        """Minutes without any change in the battery readings that count as frozen. 0 = off."""
+        return self._num_cfg(CONF_STALE_MINUTES, DEFAULT_STALE_MINUTES, 0.0, 1440.0)
+
+    # --- Third-party packs (all optional) ---
+    @property
+    def pack_current_entities(self) -> list[str]:
+        raw = self._cfg(CONF_PACK_CURRENT_ENTITIES, []) or []
+        if isinstance(raw, str):
+            raw = raw.split(",")
+        out: list[str] = []
+        for e in raw:
+            e = str(e).strip()
+            if e and e not in out:
+                out.append(e)
+        return out
+
+    @property
+    def pack_current_charge_positive(self) -> bool:
+        return bool(self._cfg(CONF_PACK_CURRENT_CHARGE_POSITIVE, DEFAULT_PACK_CURRENT_CHARGE_POSITIVE))
+
+    @property
+    def bus_voltage_entity(self) -> str:
+        return self._entity_cfg(CONF_BUS_VOLTAGE_ENTITY)
+
+    @property
+    def pack_capacity_ah(self) -> float:
+        return self._num_cfg(CONF_PACK_CAPACITY_AH, DEFAULT_PACK_CAPACITY_AH, 1.0, 10000.0)
+
+    @property
+    def capacity_v_high(self) -> float:
+        return self._num_cfg(CONF_CAPACITY_V_HIGH, DEFAULT_CAPACITY_V_HIGH, 0.0, 1000.0)
+
+    @property
+    def capacity_v_low(self) -> float:
+        return self._num_cfg(CONF_CAPACITY_V_LOW, DEFAULT_CAPACITY_V_LOW, 0.0, 1000.0)
+
+    @property
+    def battery_data_stale(self) -> bool:
+        """True while the learned runtime sees the battery readings frozen."""
+        runtime = getattr(self, "learned", None)
+        return bool(runtime is not None and getattr(runtime, "data_stale", False))
 
     # -----------------------------------------------------------------
     # Notifications
@@ -1198,9 +1268,17 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             self._charging_active = False
             return result
 
-        if not self._events_armed:
-            self._events_armed = True
-            _LOGGER.info("First calculation since start: leaving the inverter mode as it is")
+        # First calculation after a (re)start, or battery readings frozen: a charge may
+        # start, but a hold is never released and a charge never stopped. Releasing from
+        # an unverified state cost a night's hold in 0.7.0; firing nothing (0.7.1) skipped
+        # a needed top-up after a mid-peak restart.
+        first_calc = not self._events_armed
+        self._events_armed = True
+        if (first_calc or self.battery_data_stale) and not charge_needed > self.charge_threshold:
+            _LOGGER.info(
+                "%s: no charge needed, leaving the inverter mode as it is",
+                "First calculation since start" if first_calc else "Battery data frozen",
+            )
             return result
 
         solar_forecast_state = self.hass.states.get(self.solar_forecast_entity)

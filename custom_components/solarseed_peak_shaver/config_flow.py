@@ -29,6 +29,8 @@ from .const import (
     CONF_PLANNER,
     CONF_PV_POWER_ENTITY,
     CONF_MIN_SAFE_SOC,
+    CONF_PEAK_MARGIN_KWH,
+    CONF_RECOVERY_PCT,
     CONF_SCHEDULE_HOURS,
     CONF_SEASONAL_MONTHS,
     CONF_SEASONAL_PRESERVATION,
@@ -36,6 +38,7 @@ from .const import (
     CONF_SOLAR_CONFIDENCE,
     CONF_SOLAR_FORECAST_ENTITY,
     CONF_SOLAR_FORECAST_TOMORROW_ENTITY,
+    CONF_STALE_MINUTES,
     CONF_VERBOSE_LOGGING,
     CONF_WEEKDAYS_ONLY,
     DEFAULT_BASE_LOAD,
@@ -50,12 +53,15 @@ from .const import (
     DEFAULT_PEAK_START,
     DEFAULT_PLANNER,
     DEFAULT_MIN_SAFE_SOC,
+    DEFAULT_PEAK_MARGIN_KWH,
+    DEFAULT_RECOVERY_PCT,
     DEFAULT_SCHEDULE_HOURS,
     DEFAULT_SEASONAL_MONTHS,
     DEFAULT_SEASONAL_PRESERVATION,
     DEFAULT_SOLAR_ACTUAL_ENTITY,
     DEFAULT_SOLAR_CONFIDENCE,
     DEFAULT_SOLAR_FORECAST_ENTITY,
+    DEFAULT_STALE_MINUTES,
     DEFAULT_VERBOSE_LOGGING,
     DEFAULT_WEEKDAYS_ONLY,
     DOMAIN,
@@ -479,6 +485,33 @@ class PeakShaverOptionsFlow(config_entries.OptionsFlow):
                 ): selector.NumberSelector(
                     selector.NumberSelectorConfig(
                         min=0, max=50, step=1, unit_of_measurement="%",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_RECOVERY_PCT,
+                    default=current.get(CONF_RECOVERY_PCT, DEFAULT_RECOVERY_PCT),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=100, step=1, unit_of_measurement="%",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_PEAK_MARGIN_KWH,
+                    default=current.get(CONF_PEAK_MARGIN_KWH, DEFAULT_PEAK_MARGIN_KWH),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0.0, max=10.0, step=0.1, unit_of_measurement="kWh",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_STALE_MINUTES,
+                    default=current.get(CONF_STALE_MINUTES, DEFAULT_STALE_MINUTES),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=240, step=1, unit_of_measurement="min",
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),

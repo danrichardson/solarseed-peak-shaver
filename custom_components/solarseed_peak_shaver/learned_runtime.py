@@ -8,6 +8,12 @@ Runs once a minute. Every tick it:
      existing events so the blueprints switch the inverter, then checks from the power
      sensors that the inverter did what was asked.
 
+Battery readings that stop changing count as missing (the data path has frozen for
+hours with healthy-looking values): no learning, the planner's no-gauge fallbacks, one
+alert per episode. The first acting tick after a start never releases a hold or stops
+a charge; if no command was restored it reads the inverter's mode from the power
+sensors so the planner's hysteresis carries on where it was.
+
 Nothing in here may break the classic planner. Every entry point catches and logs.
 """
 from __future__ import annotations
@@ -50,6 +56,24 @@ TOPUP_MAX_HOURS = 24        # a weekly top-up that has not finished by then is a
 
 def is_tou_day(d: date, weekdays_only: bool) -> bool:
     return d.weekday() < 5 if weekdays_only else True
+
+
+def infer_mode(gauge: float | None, grid_kw: float | None, load_kw: float | None, pv_kw: float,
+               floor: float) -> str | None:
+    """Which mode the power sensors say the inverter is in, or None if they cannot tell."""
+    if grid_kw is None or load_kw is None:
+        return None
+    if grid_kw > load_kw + 0.2:
+        return MODE_CHARGE
+    if load_kw < 0.15 or pv_kw > load_kw:
+        return None
+    if grid_kw < 0.1:
+        return MODE_DISCHARGE
+    if gauge is not None and gauge <= floor + 2:
+        return None                     # at the floor the grid carries the house in any mode
+    if load_kw * 0.5 < grid_kw < load_kw + 0.3:
+        return MODE_HOLD
+    return None
 
 
 def mode_matches(mode: str, gauge: float | None, grid_kw: float, load_kw: float, pv_kw: float,
@@ -106,6 +130,12 @@ class LearnedRuntime:
         self._first_tick: datetime | None = None
         self._tick_fails = 0
         self._failsafe_sent = False
+        self._first_act = True          # the first acting tick never releases a hold or stops a charge
+        self._seen: dict[str, float] = {}
+        self._last_change: datetime | None = None
+        self.data_stale = False
+        self._stale_since: datetime | None = None
+        self._stale_alerted = False
         self._published_key: Any = None
         self._shadow: dict[str, Any] = {}
         self._grid_kwh: dict[str, float] = {}
@@ -128,6 +158,9 @@ class LearnedRuntime:
             self.learner = Learner.from_dict(blob.get("learner"))
             self.profile = LoadProfile.from_dict(blob.get("profile"), default_kw=self.coord.base_load_kw)
             self.topup_pending = bool(blob.get("topup_pending", False))
+            if blob.get("bank_full"):
+                self.bank_full = True
+                self._full_at = float(blob.get("full_at") or 100.0)
             self._topup_day = blob.get("topup_day") or None
             cmd = blob.get("commanded") or {}
             try:
@@ -155,6 +188,8 @@ class LearnedRuntime:
             "profile": self.profile.to_dict(),
             "topup_pending": self.topup_pending,
             "topup_day": self._topup_day,
+            "bank_full": self.bank_full,
+            "full_at": self._full_at,
             "commanded": {
                 "mode": self._commanded,
                 "phase": self._commanded_phase,
@@ -260,9 +295,13 @@ class LearnedRuntime:
         load = self._power_kw(c.load_power_entity)
         pv = self._power_kw(c.pv_power_entity)
         pv_ok = pv is not None or not c.pv_power_entity     # a configured but unreadable PV sensor is a gap
-        pv = pv or 0.0
 
         self._roll_day(now)
+        self._update_staleness(now, hours)
+        if self.data_stale:                                 # frozen readings count as missing
+            gauge = grid = load = pv = None
+            pv_ok = not c.pv_power_entity
+        pv = pv or 0.0
 
         if None not in (gauge, grid, load) and pv_ok and 0 < hours <= Learner.MAX_SAMPLE_HOURS:
             self.learner.sample(gauge, max(grid, 0.0), max(load, 0.0), max(pv, 0.0), hours)
@@ -278,20 +317,26 @@ class LearnedRuntime:
         self._update_topup(now)
 
         # Planning bridges a short gauge dropout with the last reading (learning never does).
+        # A frozen gauge is not bridged: its last reading is exactly what is in doubt.
         if gauge is not None:
             self._last_gauge, self._last_gauge_at = gauge, now
         plan_gauge = gauge
-        if plan_gauge is None and self._last_gauge_at is not None:
+        if plan_gauge is None and self._last_gauge_at is not None and not self.data_stale:
             if (now - self._last_gauge_at).total_seconds() <= GAUGE_GRACE_MIN * 60:
                 plan_gauge = self._last_gauge
+
+        in_control = c.planner == PLANNER_LEARNED
+        # right after a restart sensors can take a while
+        starting_blind = (plan_gauge is None
+                          and (now - self._first_tick).total_seconds() < GAUGE_GRACE_MIN * 60)
+        if in_control and not starting_blind and self._first_act and self._commanded is None:
+            self._adopt_inverter_mode(now, plan_gauge, grid, load, pv)
 
         self.decision = self._decide(now, plan_gauge)
         self._record_shadow(now, gauge)
 
-        if c.planner == PLANNER_LEARNED:
-            starting_blind = (plan_gauge is None
-                              and (now - self._first_tick).total_seconds() < GAUGE_GRACE_MIN * 60)
-            if not starting_blind:          # right after a restart sensors can take a while
+        if in_control:
+            if not starting_blind:
                 self._act(now, plan_gauge, grid, load, pv)
         elif self._commanded is not None:
             # Control was just handed back to the classic planner. Do not leave the
@@ -300,6 +345,7 @@ class LearnedRuntime:
                 _LOGGER.info("Planner switched to classic while in %s mode; returning to battery", self._commanded)
                 self.hass.bus.async_fire(EVENT_CHARGE_STOP, {"planner": PLANNER_LEARNED, "reason": "handover to classic"})
             self._commanded, self._commanded_phase, self._commanded_at = None, None, None
+            self._first_act = True          # a later takeover starts from the inverter's actual mode
             self._dirty = True
 
         if now.minute == 0 and self._dirty:
@@ -310,6 +356,79 @@ class LearnedRuntime:
         if hasattr(c, "async_update_listeners") and (key != self._published_key or now.minute % PUBLISH_EVERY_MIN == 0):
             self._published_key = key
             c.async_update_listeners()
+
+    # -----------------------------------------------------------------
+    # Staleness (ROADMAP item 4)
+    # -----------------------------------------------------------------
+    def _update_staleness(self, now: datetime, hours: float) -> None:
+        """Frozen if no battery reading has changed for `stale_minutes`.
+
+        Watches the gauge (or the SOC sensor) and the power sensors together: the house
+        load moves every minute on live data, while a hold can keep the gauge still for
+        hours. Needs at least one power sensor; 0 minutes turns the check off.
+        """
+        c = self.coord
+        limit = c.stale_minutes
+        ids = [e for e in (c.gauge_entity or c.battery_soc_entity, c.load_power_entity,
+                           c.grid_power_entity, c.pv_power_entity) if e]
+        if limit <= 0 or not (c.load_power_entity or c.grid_power_entity):
+            self._set_stale(False, now)
+            return
+        for entity_id in ids:
+            val = self._float_state(entity_id)
+            if val is None:
+                continue
+            if self._seen.get(entity_id) != val:
+                self._seen[entity_id] = val
+                self._last_change = now
+        if self._last_change is None:
+            self._last_change = now
+        frozen = (now - self._last_change).total_seconds() >= limit * 60
+        self._set_stale(frozen, now)
+        if frozen and 0 < hours <= 1:
+            self._shadow["stale_minutes"] = round(self._shadow.get("stale_minutes", 0) + hours * 60, 1)
+
+    def _set_stale(self, frozen: bool, now: datetime) -> None:
+        if frozen == self.data_stale:
+            return
+        c = self.coord
+        self.data_stale = frozen
+        self._dirty = True
+        if frozen:
+            self._stale_since = self._last_change or now
+            _LOGGER.warning("Battery readings have not changed for %.0f minutes; treating them as missing",
+                            c.stale_minutes)
+            if not self._stale_alerted:
+                self._stale_alerted = True
+                c._notify(
+                    "Solarseed - battery data frozen",
+                    "No change in the battery gauge or the inverter power readings for %.0f minutes. "
+                    "The planner treats the battery as unreadable: no learning, night falls back to "
+                    "charging, mid-peak stays on battery, peak never charges. The inverter's own "
+                    "SOC Low is the backstop." % c.stale_minutes)
+            return
+        since = self._stale_since
+        mins = (now - since).total_seconds() / 60.0 if since else 0.0
+        _LOGGER.info("Battery readings are changing again after %.0f minutes", mins)
+        if self._stale_alerted:
+            self._stale_alerted = False
+            c._notify("Solarseed - battery data back",
+                      "Battery readings are changing again after %.0f minutes." % mins)
+        self._stale_since = None
+
+    # -----------------------------------------------------------------
+    # First tick after a start (ROADMAP item 5)
+    # -----------------------------------------------------------------
+    def _adopt_inverter_mode(self, now: datetime, gauge: float | None, grid: float | None,
+                             load: float | None, pv: float) -> None:
+        """No command survived the restart: take the inverter's current mode from the power
+        readings, so the planner continues (and keeps its hysteresis) instead of starting over."""
+        mode = infer_mode(gauge, grid, load, pv, self.coord.gauge_floor)
+        if mode is None:
+            return
+        phase = self._decide(now, gauge).phase
+        _LOGGER.info("After start the inverter looks to be in %s mode (%s); continuing from there", mode, phase)
+        self._commanded, self._commanded_phase, self._commanded_at = mode, phase, now
 
     def _roll_day(self, now: datetime) -> None:
         today = now.date()
@@ -381,6 +500,8 @@ class LearnedRuntime:
             peak_end=c.peak_end,
             floor=c.gauge_floor,
             full_months=tuple(c.full_charge_months),
+            margin_kwh=c.peak_margin_kwh,
+            recovery_pct=c.recovery_pct,
             load_quantile=c.load_quantile,
             solar_confidence=c.solar_confidence,
             solar_today=c._get_hourly_solar(quiet=True),
@@ -390,6 +511,7 @@ class LearnedRuntime:
             topup_pending=self.topup_pending,
             current_mode=self._commanded if c.planner == PLANNER_LEARNED else None,
             current_phase=self._commanded_phase if c.planner == PLANNER_LEARNED else None,
+            data_stale=self.data_stale,
         )
 
     def _decide(self, now: datetime, gauge: float | None) -> Decision:
@@ -408,6 +530,14 @@ class LearnedRuntime:
                 s["night_need_kwh"] = round(d.need_kwh, 2)
         if d.mode == MODE_CHARGE and d.phase == "mid-peak":
             s["midpeak_charge_wanted"] = True
+        # The handover: the gauge reaching the floor inside the rate window (it bounces up
+        # to the recovery level straight after, so only the first touch is recorded).
+        if (gauge is not None and "handover_at" not in s and gauge <= c.gauge_floor + 0.5
+                and is_tou_day(now.date(), c.weekdays_only) and c.midpeak_start <= now.hour < c.peak_end):
+            s["handover_at"] = now.strftime("%H:%M")
+            s["handover_period"] = c._classify_period(now)
+            if d.handover_kwh is not None:
+                s["handover_cost_kwh"] = round(d.handover_kwh, 2)
         if gauge is None or now.minute != 0:
             return
         if now.hour == c.midpeak_start:
@@ -435,6 +565,7 @@ class LearnedRuntime:
         out["load_actual_kwh"] = round(sum(
             v for h, v in self._day_kwh.items() if c.midpeak_start <= h < c.peak_end), 2)
         out["grid_kwh"] = {k: round(v, 2) for k, v in self._grid_kwh.items()}
+        out.setdefault("stale_minutes", 0)
         return out
 
     # -----------------------------------------------------------------
@@ -458,6 +589,14 @@ class LearnedRuntime:
              pv: float) -> None:
         d = self.decision
         if d is None:
+            return
+        first, self._first_act = self._first_act, False
+        if first and d.mode != self._commanded and d.mode != MODE_CHARGE:
+            # A restart is no reason to release a hold or stop a charge; the next tick decides
+            # again with the restored or observed mode. Unknown mode: adopt, verification checks.
+            _LOGGER.info("First decision since start is %s (%s); not acting on it yet", d.mode, d.reason)
+            if self._commanded is None:
+                self._commanded, self._commanded_phase, self._commanded_at = d.mode, d.phase, now
             return
         if d.mode != self._commanded:
             _LOGGER.info("Learned planner: %s -> %s (%s)", self._commanded, d.mode, d.reason)

@@ -98,6 +98,12 @@ async def async_get_config_entry_diagnostics(
             "decision": runtime.decision.as_dict() if runtime.decision else None,
             "bank_full": runtime.bank_full,
             "weekly_topup_pending": runtime.topup_pending,
+            "battery_data_stale": runtime.data_stale,
+            "stale_minutes_setting": coordinator.stale_minutes,
+            "seconds_since_last_change": (
+                None if runtime._last_change is None or runtime._last_tick is None
+                else round((runtime._last_tick - runtime._last_change).total_seconds())
+            ),
             "curves": runtime.curve_table(),
             "load_profile_tou_kw": {
                 str(h): round(runtime.profile.mean(True, h), 3) for h in range(24)

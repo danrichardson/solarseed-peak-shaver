@@ -35,6 +35,17 @@ CONF_LOAD_QUANTILE = "load_quantile"
 CONF_SOLAR_CONFIDENCE = "solar_confidence"
 CONF_GAUGE_FLOOR = "gauge_floor_pct"
 
+# --- 0.8.0: handover cost, staleness, third-party packs. All optional.
+CONF_RECOVERY_PCT = "handover_recovery_pct"
+CONF_PEAK_MARGIN_KWH = "peak_margin_kwh"
+CONF_STALE_MINUTES = "stale_minutes"
+CONF_PACK_CURRENT_ENTITIES = "pack_current_entities"
+CONF_PACK_CURRENT_CHARGE_POSITIVE = "pack_current_charge_positive"
+CONF_BUS_VOLTAGE_ENTITY = "bus_voltage_entity"
+CONF_PACK_CAPACITY_AH = "pack_capacity_ah"
+CONF_CAPACITY_V_HIGH = "capacity_v_high"
+CONF_CAPACITY_V_LOW = "capacity_v_low"
+
 PLANNER_CLASSIC = "classic"
 PLANNER_LEARNED = "learned"
 
@@ -60,6 +71,13 @@ DEFAULT_FULL_CHARGE_MONTHS = [11, 12, 1]
 DEFAULT_LOAD_QUANTILE = 0.8
 DEFAULT_SOLAR_CONFIDENCE = 0.7
 DEFAULT_GAUGE_FLOOR = 3.0
+DEFAULT_RECOVERY_PCT = 10.0
+DEFAULT_PEAK_MARGIN_KWH = 0.5
+DEFAULT_STALE_MINUTES = 20
+DEFAULT_PACK_CURRENT_CHARGE_POSITIVE = True
+DEFAULT_PACK_CAPACITY_AH = 100.0
+DEFAULT_CAPACITY_V_HIGH = 53.0
+DEFAULT_CAPACITY_V_LOW = 51.5
 
 # --- Sensor keys ---
 SENSOR_TARGET_SOC = "target_soc_kwh"

@@ -234,3 +234,106 @@ class TestPredictGauge:
         ln, lp = trained()
         d = decide(inputs("2026-11-16T21:00", 20.0), ln, lp).as_dict()
         assert d["mode"] == MODE_CHARGE and isinstance(d["reason"], str)
+
+
+def gauge_with_short(ln, lp, when: str, short: float, floor: float = 3.0, margin: float = 0.5):
+    """The gauge at which the mid-peak rule sees exactly `short` kWh of shortfall."""
+    from custom_components.solarseed_peak_shaver.planner import window_need as wn
+
+    t = datetime.fromisoformat(when)
+    h = t.hour + t.minute / 60.0
+    to_peak = wn(lp, {}, h, 17, 0.8, 0.7, (7, 21))
+    peak = wn(lp, {}, 17, 21, 0.8, 0.7, (7, 21))
+    return ln.discharge.move(floor, peak + margin + to_peak - short, +1)
+
+
+class TestHandoverCost:
+    """ROADMAP item 3: running out in peak costs the shortfall plus the recovery charge."""
+
+    def test_handover_kwh_is_the_grid_charge_from_floor_to_recovery(self):
+        from custom_components.solarseed_peak_shaver.planner import handover_kwh
+
+        ln, _ = trained(kwh_per_pt=0.15)
+        assert handover_kwh(ln, 3.0, 10.0) == pytest.approx(ln.grid_charge.energy_between(3.0, 10.0))
+        assert 0.9 < handover_kwh(ln, 3.0, 10.0) < 1.3        # about 7 points at 0.15 kWh
+        assert handover_kwh(ln, 3.0, 3.0) == 0.0
+        assert handover_kwh(ln, 5.0, 2.0) == 0.0
+
+    def test_a_small_shortfall_late_in_midpeak_now_starts_a_topup(self):
+        ln, lp = trained()
+        g = gauge_with_short(ln, lp, "2026-11-16T16:50", 0.15)
+        d = decide(inputs("2026-11-16T16:50", g), ln, lp)
+        assert d.mode == MODE_CHARGE                    # 0.7.x tolerated up to 0.3 kWh here
+        assert d.shortfall_kwh == pytest.approx(0.15, abs=0.02)
+
+    def test_no_shortfall_no_topup(self):
+        ln, lp = trained()
+        g = gauge_with_short(ln, lp, "2026-11-16T16:50", -0.1)
+        assert decide(inputs("2026-11-16T16:50", g), ln, lp).mode == MODE_DISCHARGE
+
+    def test_running_topup_goes_a_little_past_the_need(self):
+        from custom_components.solarseed_peak_shaver.planner import TOPUP_OVERSHOOT_KWH
+
+        ln, lp = trained()
+        running = dict(current_mode=MODE_CHARGE, current_phase="mid-peak")
+        g = gauge_with_short(ln, lp, "2026-11-16T16:40", -TOPUP_OVERSHOOT_KWH / 2)
+        assert decide(inputs("2026-11-16T16:40", g, **running), ln, lp).mode == MODE_CHARGE
+        g = gauge_with_short(ln, lp, "2026-11-16T16:40", -TOPUP_OVERSHOOT_KWH - 0.05)
+        assert decide(inputs("2026-11-16T16:40", g, **running), ln, lp).mode == MODE_DISCHARGE
+
+    def test_topup_target_includes_the_overshoot(self):
+        from custom_components.solarseed_peak_shaver.planner import TOPUP_OVERSHOOT_KWH
+
+        ln, lp = trained()
+        g = gauge_with_short(ln, lp, "2026-11-16T16:30", 1.0)
+        d = decide(inputs("2026-11-16T16:30", g), ln, lp)
+        assert d.mode == MODE_CHARGE
+        assert d.target_gauge == pytest.approx(ln.discharge.move(g, 1.0 + TOPUP_OVERSHOOT_KWH, +1), abs=0.1)
+
+    def test_reason_and_fields_carry_the_cost(self):
+        ln, lp = trained(kwh_per_pt=0.15)
+        g = gauge_with_short(ln, lp, "2026-11-16T16:30", 1.0)
+        d = decide(inputs("2026-11-16T16:30", g), ln, lp)
+        assert "peak price" in d.reason and "10%" in d.reason
+        assert d.handover_kwh == pytest.approx(ln.grid_charge.energy_between(3.0, 10.0))
+        out = d.as_dict()
+        assert out["handover_kwh"] is not None and out["shortfall_kwh"] is not None
+
+    def test_recovery_level_is_an_input(self):
+        ln, lp = trained(kwh_per_pt=0.15)
+        d = decide(inputs("2026-11-16T10:00", 90.0, recovery_pct=20.0), ln, lp)
+        assert d.handover_kwh == pytest.approx(ln.grid_charge.energy_between(3.0, 20.0))
+
+    def test_a_bigger_peak_margin_starts_a_topup_sooner(self):
+        ln, lp = trained()
+        g = gauge_with_short(ln, lp, "2026-11-16T16:50", -0.3)          # covered with 0.5 kWh margin
+        assert decide(inputs("2026-11-16T16:50", g), ln, lp).mode == MODE_DISCHARGE
+        assert decide(inputs("2026-11-16T16:50", g, margin_kwh=1.0), ln, lp).mode == MODE_CHARGE
+
+    def test_peak_still_never_charges(self):
+        ln, lp = trained()
+        d = decide(inputs("2026-11-16T17:05", 4.0, current_mode=MODE_CHARGE, current_phase="mid-peak"), ln, lp)
+        assert d.mode == MODE_DISCHARGE and d.phase == "peak"
+
+
+class TestMissingGauge:
+    def test_a_running_topup_is_finished_without_a_gauge(self):
+        ln, lp = trained()
+        running = dict(current_mode=MODE_CHARGE, current_phase="mid-peak")
+        d = decide(inputs("2026-11-16T16:20", None, **running), ln, lp)
+        assert d.mode == MODE_CHARGE and "unavailable" in d.reason
+
+    def test_but_never_into_peak(self):
+        ln, lp = trained()
+        running = dict(current_mode=MODE_CHARGE, current_phase="mid-peak")
+        assert decide(inputs("2026-11-16T17:00", None, **running), ln, lp).mode == MODE_DISCHARGE
+
+    def test_a_night_charge_is_not_carried_into_midpeak(self):
+        ln, lp = trained()
+        d = decide(inputs("2026-11-17T07:00", None, current_mode=MODE_CHARGE, current_phase="night"), ln, lp)
+        assert d.mode == MODE_DISCHARGE
+
+    def test_frozen_data_is_named_in_the_reason(self):
+        ln, lp = trained()
+        d = decide(inputs("2026-03-16T23:00", None, data_stale=True), ln, lp)
+        assert d.mode == MODE_CHARGE and "frozen" in d.reason

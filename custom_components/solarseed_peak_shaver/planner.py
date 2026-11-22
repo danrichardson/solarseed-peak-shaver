@@ -11,7 +11,11 @@ The rules, in order:
 
   1. Peak window on a TOU day: discharge. Never charge.
   2. Mid-peak on a TOU day: discharge. Charge only if the battery will not cover the
-     peak window, and then as late as will still finish by peak start.
+     peak window with the margin to spare, and then as late as will still finish by
+     peak start. Running out in peak is never cheap: the inverter hands the house to
+     the grid at the floor and then grid-charges its battery back to a recovery level
+     at peak price, so any predicted shortfall starts a top-up (no tolerance), and a
+     running top-up goes a little past the need.
   3. The night before a TOU day (after peak end, or before mid-peak start on the day):
        - "full" months: charge until the inverter ends the charge, then hold.
        - other months: work out the energy the day needs, turn it into a gauge target
@@ -22,8 +26,11 @@ The rules, in order:
   5. Otherwise: discharge.
 
 A forecast only changes numbers inside these rules. It never starts a charge by itself.
-When the model is not trained yet, or the gauge cannot be read, the night rule falls
-back to a full charge: more charge than needed costs cents, too little costs dollars.
+When the model is not trained yet, or the gauge cannot be read (missing, or frozen:
+see the staleness check in learned_runtime), the night rule falls back to a full
+charge: more charge than needed costs cents, too little costs dollars. Without a gauge
+in mid-peak the inverter stays on battery, except that a top-up already running is
+finished (the inverter stops it when full; the peak rule stops it at peak start).
 """
 from __future__ import annotations
 
@@ -41,6 +48,8 @@ MODE_CHARGE = "charge"
 MIN_CURVE_POINTS = 150.0
 #: TOU days of load history before the learned profile is trusted for sizing
 MIN_PROFILE_DAYS = 5
+#: a mid-peak top-up keeps going until the peak window is covered with this much extra (kWh)
+TOPUP_OVERSHOOT_KWH = 0.2
 
 
 @dataclass
@@ -56,7 +65,8 @@ class PlanInputs:
     full_months: tuple[int, ...] = (11, 12, 1)
     load_quantile: float = 0.8
     solar_confidence: float = 0.7
-    margin_kwh: float = 0.5
+    margin_kwh: float = 0.5             # reserve to keep above the floor at peak end
+    recovery_pct: float = 10.0          # gauge the inverter grid-charges back to after a handover
     solar_today: dict[int, float] = field(default_factory=dict)       # kWh by hour
     solar_tomorrow: dict[int, float] = field(default_factory=dict)
     bank_full: bool = False             # the inverter has ended the charge
@@ -64,6 +74,7 @@ class PlanInputs:
     current_mode: str | None = None     # what was last commanded, for hysteresis
     current_phase: str | None = None    # the phase that command was issued in
     fallback_charge_kw: float = 1.5     # net charge rate assumed before one is learned
+    data_stale: bool = False            # the gauge is None because the readings froze
 
 
 @dataclass
@@ -76,6 +87,8 @@ class Decision:
     energy_remaining_kwh: float | None = None
     lead_hours: float | None = None
     model_ready: bool = False
+    handover_kwh: float | None = None   # what one handover costs on top of the shortfall
+    shortfall_kwh: float | None = None  # predicted short of the peak window plus margin
 
     def as_dict(self) -> dict[str, Any]:
         r = lambda v, n=2: None if v is None else round(v, n)
@@ -88,6 +101,8 @@ class Decision:
             "energy_remaining_kwh": r(self.energy_remaining_kwh),
             "lead_hours": r(self.lead_hours),
             "model_ready": self.model_ready,
+            "handover_kwh": r(self.handover_kwh),
+            "shortfall_kwh": r(self.shortfall_kwh),
         }
 
 
@@ -127,6 +142,18 @@ def window_need(
     return need
 
 
+def handover_kwh(learner: Learner, floor: float, recovery_pct: float) -> float:
+    """kWh the inverter buys to recharge its battery from the floor to the recovery level.
+
+    That is the price of touching the floor, on top of the load the grid then carries:
+    the inverter stays on grid until its battery is back at the recovery level (and
+    with this inverter, until the mode changes). Learned from the grid-charge curve.
+    """
+    if recovery_pct <= floor:
+        return 0.0
+    return learner.grid_charge.energy_between(floor, recovery_pct)
+
+
 def _hours_until(now_h: float, hour: int) -> float:
     return (hour - now_h) % 24 or 24.0
 
@@ -142,9 +169,12 @@ def decide(inp: PlanInputs, learner: Learner, profile: LoadProfile) -> Decision:
     if gauge is not None:
         remaining = learner.discharge.energy_between(inp.floor, gauge) if gauge > inp.floor else 0.0
 
+    handover = handover_kwh(learner, inp.floor, inp.recovery_pct)
+    no_gauge = "Battery data frozen" if inp.data_stale else "Battery gauge unavailable"
+
     def make(mode: str, phase: str, reason: str, **kw: Any) -> Decision:
         return Decision(mode=mode, phase=phase, reason=reason, energy_remaining_kwh=remaining,
-                        model_ready=ready, **kw)
+                        model_ready=ready, handover_kwh=handover, **kw)
 
     in_rates = inp.is_tou_today and inp.midpeak_start <= h < inp.peak_end
     pre_tou_night = (h >= inp.peak_end and inp.is_tou_tomorrow) or (h < inp.midpeak_start and inp.is_tou_today)
@@ -155,35 +185,46 @@ def decide(inp: PlanInputs, learner: Learner, profile: LoadProfile) -> Decision:
 
     # 2. Mid-peak: charge only to cover the peak window, finished by peak start.
     if in_rates:
+        charging = inp.current_mode == MODE_CHARGE and inp.current_phase == "mid-peak"
         if gauge is None:
-            return make(MODE_DISCHARGE, "mid-peak", "Battery gauge unavailable: leaving the inverter on battery.")
+            if charging:
+                return make(MODE_CHARGE, "mid-peak",
+                            "%s during a top-up: finishing it; it ends when the inverter is full or at %02d:00."
+                            % (no_gauge, inp.peak_start))
+            return make(MODE_DISCHARGE, "mid-peak", "%s: leaving the inverter on battery." % no_gauge)
         to_peak = window_need(profile, inp.solar_today, h, inp.peak_start, inp.load_quantile,
                               inp.solar_confidence, window)
         peak = window_need(profile, inp.solar_today, inp.peak_start, inp.peak_end, inp.load_quantile,
                            inp.solar_confidence, window)
         short = peak + inp.margin_kwh - (remaining - to_peak)
-        charging = inp.current_mode == MODE_CHARGE and inp.current_phase == "mid-peak"
-        if short > (0.0 if charging else 0.3):
+        # Handover as a cost: not topping up risks the shortfall plus `handover` kWh, all at
+        # peak price; a top-up costs the shortfall at mid-peak price. Peak price is never
+        # lower, so any shortfall is worth covering, and a running top-up overshoots a bit.
+        if short > (-TOPUP_OVERSHOOT_KWH if charging else 0.0):
             i = min(learner.grid_charge.n - 1, int(gauge // learner.grid_charge.bin_pts))
             hpp = learner.grid_charge.hours_per_pt(i)
             rate = learner.grid_charge.per_pt(i) / hpp if hpp > 0 else inp.fallback_charge_kw
             rate = min(max(rate, 0.3), 10.0)
             lead = short / rate + 0.25
             left = inp.peak_start - h
+            cost = ("running out would cost about %.1f kWh at peak price (%.1f short plus %.1f to "
+                    "recharge to %.0f%%)" % (max(short, 0.0) + handover, max(short, 0.0), handover,
+                                             inp.recovery_pct))
             if charging or left <= lead:
-                target = learner.discharge.move(gauge, short, +1)
+                target = learner.discharge.move(gauge, max(short, 0.0) + TOPUP_OVERSHOOT_KWH, +1)
                 return make(MODE_CHARGE, "mid-peak",
-                            "Peak window would be short by %.1f kWh: charging now to finish by %02d:00."
-                            % (short, inp.peak_start),
-                            target_gauge=target, need_kwh=peak + to_peak, lead_hours=lead)
+                            "Peak window would be short by %.1f kWh: charging now to finish by %02d:00; %s."
+                            % (max(short, 0.0), inp.peak_start, cost),
+                            target_gauge=target, need_kwh=peak + to_peak, lead_hours=lead,
+                            shortfall_kwh=short)
             return make(MODE_DISCHARGE, "mid-peak",
                         "Peak window looks short by %.1f kWh; a top-up will start about %.1f h before %02d:00 "
-                        "if that is still true." % (short, lead, inp.peak_start),
-                        need_kwh=peak + to_peak, lead_hours=lead)
+                        "if that is still true; %s." % (short, lead, inp.peak_start, cost),
+                        need_kwh=peak + to_peak, lead_hours=lead, shortfall_kwh=short)
         return make(MODE_DISCHARGE, "mid-peak",
                     "On battery. Expected to reach %02d:00 with %.1f kWh against %.1f kWh needed for peak."
                     % (inp.peak_start, max(remaining - to_peak, 0.0), peak),
-                    need_kwh=peak + to_peak)
+                    need_kwh=peak + to_peak, shortfall_kwh=short)
 
     # 3. The night before a TOU day.
     if pre_tou_night:
@@ -193,7 +234,7 @@ def decide(inp: PlanInputs, learner: Learner, profile: LoadProfile) -> Decision:
         full_month = tou_day_month in inp.full_months
         if full_month or not ready or gauge is None:
             why = ("Full-charge month" if full_month else
-                   "Model not trained yet" if not ready else "Battery gauge unavailable")
+                   "Model not trained yet" if not ready else no_gauge)
             if inp.bank_full:
                 return make(MODE_HOLD, "night", "%s: battery is full, holding until %02d:00."
                             % (why, inp.midpeak_start), target_gauge=100.0)

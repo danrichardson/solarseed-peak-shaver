@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
@@ -40,15 +41,16 @@ class World:
     def __init__(self):
         self.values = {"sensor.gauge": (50, "%"), "sensor.load": (600, "W"), "sensor.grid": (0, "W"),
                        "sensor.pv": (0, "W"), "sensor.battery_soc": (11.75, "kWh")}
+        self.tick = 0               # live data wobbles; a constant house load reads as frozen
+        self.frozen = False
 
     def get(self, entity_id):
         if entity_id not in self.values:
             return None
         val, unit = self.values[entity_id]
-        st = MagicMock()
-        st.state = str(val)
-        st.attributes = {"unit_of_measurement": unit}
-        return st
+        if entity_id == "sensor.load" and unit == "W" and not self.frozen and isinstance(val, (int, float)):
+            val = val + self.tick % 2
+        return SimpleNamespace(state=str(val), attributes={"unit_of_measurement": unit})
 
 
 def make_runtime(planner="classic", **overrides):
@@ -60,6 +62,7 @@ def make_runtime(planner="classic", **overrides):
     coord.hass.states.get = world.get
     coord.async_update_listeners = MagicMock()
     rt = LearnedRuntime(coord.hass, coord)
+    rt._test_world = world
     coord.learned = rt
     return rt, coord, world
 
@@ -70,9 +73,12 @@ def fired(coord):
 
 def run(rt, start: datetime, minutes: int, step=None):
     t = start
+    world = getattr(rt, "_test_world", None)
     for i in range(minutes):
         if step:
             step(i, t)
+        if world is not None:
+            world.tick += 1
         rt.tick(t)
         t += timedelta(minutes=1)
     return t
@@ -141,11 +147,11 @@ class TestShadowMode:
 class TestLearnedInControl:
     def test_fires_once_per_mode_change(self):
         rt, coord, world = make_runtime(planner="learned")
-        run(rt, datetime(2026, 11, 16, 20, 58), 2)          # still peak
-        assert fired(coord) == [EVENT_CHARGE_STOP]
+        run(rt, datetime(2026, 11, 16, 20, 58), 2)          # still peak, inverter seen on battery
+        assert fired(coord) == []                           # already doing what is wanted
         world.values["sensor.grid"] = (2400, "W")
         run(rt, datetime(2026, 11, 16, 21, 0), 30)          # night before a TOU day, November
-        assert fired(coord) == [EVENT_CHARGE_STOP, EVENT_CHARGE_START]
+        assert fired(coord) == [EVENT_CHARGE_START]
 
     def test_holds_when_the_inverter_reports_full(self):
         rt, coord, world = make_runtime(planner="learned")
@@ -162,7 +168,7 @@ class TestLearnedInControl:
         world.values["sensor.gauge"] = (100, "%")
         world.values["sensor.grid"] = (600, "W")
         run(rt, datetime(2026, 11, 17, 6, 58), 4)
-        assert fired(coord) == [EVENT_PRESERVE_START, EVENT_CHARGE_STOP]
+        assert fired(coord) == [EVENT_CHARGE_STOP]          # the hold seen at 06:58 is kept, then released
 
     def test_resends_a_command_the_inverter_ignored_then_alerts(self):
         rt, coord, world = make_runtime(planner="learned")
@@ -176,6 +182,7 @@ class TestLearnedInControl:
 
     def test_no_resend_when_the_inverter_obeys(self):
         rt, coord, world = make_runtime(planner="learned")
+        run(rt, datetime(2026, 11, 16, 20, 59), 1)
         world.values["sensor.grid"] = (2400, "W")
         run(rt, datetime(2026, 11, 16, 21, 0), 60)
         assert fired(coord).count(EVENT_CHARGE_START) == 1
@@ -190,6 +197,7 @@ class TestLearnedInControl:
 
     def test_weekly_topup_is_requested_after_the_last_tou_day(self):
         rt, coord, world = make_runtime(planner="learned")
+        run(rt, datetime(2026, 11, 20, 20, 58), 1)
         world.values["sensor.grid"] = (2400, "W")
         run(rt, datetime(2026, 11, 20, 20, 59), 5)              # Friday across 21:00
         assert rt.topup_pending
@@ -344,6 +352,7 @@ class TestRobustness:
     def test_persistent_failure_returns_the_inverter_to_battery_once(self):
         rt, coord, world = make_runtime(planner="learned")
         coord._notify = MagicMock()
+        run(rt, datetime(2026, 11, 16, 20, 59), 1)
         world.values["sensor.grid"] = (2400, "W")
         run(rt, datetime(2026, 11, 16, 21, 0), 3)
         assert fired(coord)[-1] == EVENT_CHARGE_START
@@ -356,6 +365,7 @@ class TestRobustness:
 
     def test_handing_back_to_classic_releases_a_charge(self):
         rt, coord, world = make_runtime(planner="learned")
+        run(rt, datetime(2026, 11, 16, 20, 59), 1)
         world.values["sensor.grid"] = (2400, "W")
         run(rt, datetime(2026, 11, 16, 21, 0), 3)
         assert fired(coord)[-1] == EVENT_CHARGE_START
@@ -388,3 +398,200 @@ class TestRobustness:
         rt, coord, world = make_runtime(planner="classic")
         run(rt, datetime(2026, 11, 16, 10, 1), 30)
         assert coord.async_update_listeners.call_count <= 8
+
+
+def _trained_runtime(planner="learned", **overrides):
+    from tests.test_planner import trained
+
+    rt, coord, world = make_runtime(planner=planner, **overrides)
+    rt.learner, rt.profile = trained()
+    return rt, coord, world
+
+
+class TestStaleness:
+    """ROADMAP item 4: readings that stop changing count as missing."""
+
+    def _freeze_midday(self, planner="classic", **overrides):
+        rt, coord, world = make_runtime(planner=planner, **overrides)
+        coord._notify = MagicMock()
+
+        def falling(i, t):
+            world.values["sensor.gauge"] = (80 - i // 15, "%")
+
+        run(rt, datetime(2026, 11, 16, 9, 0), 60, falling)
+        world.frozen = True                                    # the data path stops, values stay put
+        return rt, coord, world
+
+    def test_frozen_readings_trip_after_the_limit_and_alert_once(self):
+        rt, coord, world = self._freeze_midday()
+        run(rt, datetime(2026, 11, 16, 10, 0), 19)
+        assert not rt.data_stale
+        run(rt, datetime(2026, 11, 16, 10, 19), 40)
+        assert rt.data_stale
+        titles = [c.args[0] for c in coord._notify.call_args_list]
+        assert titles.count("Solarseed - battery data frozen") == 1
+        assert "frozen" in rt.decision.reason
+
+    def test_nothing_is_learned_from_frozen_readings(self):
+        rt, coord, world = self._freeze_midday()
+        run(rt, datetime(2026, 11, 16, 10, 0), 21)
+        learned = sum(rt.learner.discharge.p)
+        run(rt, datetime(2026, 11, 16, 10, 21), 60)
+        assert sum(rt.learner.discharge.p) == pytest.approx(learned)
+
+    def test_recovery_clears_and_says_so(self):
+        rt, coord, world = self._freeze_midday()
+        run(rt, datetime(2026, 11, 16, 10, 0), 30)
+        assert rt.data_stale
+        world.frozen = False
+        run(rt, datetime(2026, 11, 16, 10, 30), 2)
+        assert not rt.data_stale
+        titles = [c.args[0] for c in coord._notify.call_args_list]
+        assert "Solarseed - battery data back" in titles
+
+    def test_a_still_gauge_alone_is_not_stale(self):
+        rt, coord, world = make_runtime()
+        world.values["sensor.gauge"] = (100, "%")              # overnight hold: gauge still for hours
+        run(rt, datetime(2026, 11, 16, 22, 0), 180)
+        assert not rt.data_stale
+
+    def test_zero_turns_the_check_off(self):
+        from custom_components.solarseed_peak_shaver.const import CONF_STALE_MINUTES
+
+        rt, coord, world = self._freeze_midday(**{CONF_STALE_MINUTES: 0})
+        run(rt, datetime(2026, 11, 16, 10, 0), 120)
+        assert not rt.data_stale
+
+    def test_needs_a_power_sensor(self):
+        rt, coord, world = make_runtime(**{CONF_LOAD_POWER_ENTITY: "", CONF_GRID_POWER_ENTITY: ""})
+        world.frozen = True
+        run(rt, datetime(2026, 11, 16, 22, 0), 60)
+        assert not rt.data_stale
+
+    def test_stale_minutes_go_into_the_daily_summary(self):
+        rt, coord, world = self._freeze_midday()
+        run(rt, datetime(2026, 11, 16, 10, 0), 50)
+        assert rt.daily_summary()["stale_minutes"] == pytest.approx(31, abs=1)
+
+    def test_frozen_gauge_is_not_bridged_and_night_falls_back_to_charging(self):
+        rt, coord, world = _trained_runtime(planner="learned")
+        world.values["sensor.gauge"] = (90, "%")               # March: sized night, plenty on board
+        run(rt, datetime(2026, 3, 16, 22, 0), 3)
+        assert rt.decision.mode in (MODE_DISCHARGE, MODE_HOLD)
+        world.frozen = True
+        run(rt, datetime(2026, 3, 16, 22, 3), 30)
+        assert rt.data_stale
+        assert rt.decision.mode == MODE_CHARGE and "frozen" in rt.decision.reason
+        assert fired(coord)[-1] == EVENT_CHARGE_START
+
+    def test_classic_never_stops_while_frozen(self):
+        import asyncio
+
+        rt, coord, world = make_runtime(planner="classic")
+        TestClassicRestart()._solar(coord, world)
+        rt.data_stale = True
+        world.values["sensor.battery_soc"] = (20.0, "kWh")     # classic would fire charge_stop
+        asyncio.run(coord._async_update_data())
+        assert fired(coord) == []
+        world.values["sensor.battery_soc"] = (1.0, "kWh")      # a charge may still start
+        asyncio.run(coord._async_update_data())
+        assert fired(coord) == [EVENT_CHARGE_START]
+
+
+class TestFirstTickAfterStart:
+    """ROADMAP item 5: a restart never releases a hold or stops a charge."""
+
+    def test_classic_first_calculation_may_start_a_charge(self):
+        import asyncio
+
+        rt, coord, world = make_runtime(planner="classic")
+        TestClassicRestart()._solar(coord, world)
+        coord._events_armed = False
+        world.values["sensor.battery_soc"] = (1.0, "kWh")
+        asyncio.run(coord._async_update_data())
+        assert fired(coord) == [EVENT_CHARGE_START]
+
+    def test_a_hold_seen_after_a_restart_is_kept(self):
+        rt, coord, world = _trained_runtime()
+        world.values["sensor.gauge"] = (90, "%")               # more than tomorrow needs,
+        world.values["sensor.grid"] = (600, "W")               # but the inverter is holding
+        run(rt, datetime(2026, 3, 16, 23, 0), 30)
+        assert rt.decision.mode == MODE_HOLD
+        assert fired(coord) == []
+
+    def test_on_battery_after_a_restart_it_carries_on(self):
+        rt, coord, world = _trained_runtime()
+        world.values["sensor.gauge"] = (90, "%")
+        world.values["sensor.grid"] = (0, "W")
+        run(rt, datetime(2026, 3, 16, 23, 0), 30)
+        assert rt.decision.mode == MODE_DISCHARGE
+        assert fired(coord) == []
+
+    def test_unreadable_mode_is_adopted_not_fired(self):
+        rt, coord, world = _trained_runtime()
+        world.values["sensor.gauge"] = (90, "%")
+        world.values["sensor.load"] = (50, "W")                # too little load to tell the mode
+        world.values["sensor.grid"] = (50, "W")
+        run(rt, datetime(2026, 3, 16, 23, 0), 30)
+        assert fired(coord) == []
+        assert rt._commanded == MODE_DISCHARGE
+
+    def test_a_charge_still_starts_on_the_first_tick(self):
+        rt, coord, world = make_runtime(planner="learned")
+        run(rt, datetime(2026, 11, 16, 21, 30), 1)             # full-charge month, inverter on battery
+        assert fired(coord) == [EVENT_CHARGE_START]
+
+    def test_a_restored_command_is_kept(self):
+        rt, coord, world = _trained_runtime()
+        now = datetime.now().replace(second=0, microsecond=0)
+        rt._commanded, rt._commanded_phase, rt._commanded_at = MODE_HOLD, "night", now
+        rt2, coord2, world2 = _trained_runtime()
+        rt2.load_state(rt.dump_state())
+        world2.values["sensor.gauge"] = (90, "%")
+        world2.values["sensor.grid"] = (0, "W")                # readings alone would say discharge
+        run(rt2, datetime(2026, 3, 16, 23, 0), 5)
+        assert rt2._commanded == MODE_HOLD
+        assert fired(coord2) == []
+
+    def test_takeover_after_classic_starts_from_the_inverter_mode(self):
+        rt, coord, world = make_runtime(planner="learned")
+        run(rt, datetime(2026, 11, 16, 20, 59), 1)
+        world.values["sensor.grid"] = (2400, "W")
+        run(rt, datetime(2026, 11, 16, 21, 0), 3)
+        coord.entry.data[CONF_PLANNER] = "classic"
+        run(rt, datetime(2026, 11, 16, 21, 3), 2)              # releases (handover to classic)
+        assert rt._first_act
+        world.values["sensor.grid"] = (600, "W")
+        world.values["sensor.gauge"] = (100, "%")
+        coord.entry.data[CONF_PLANNER] = "learned"
+        n = len(fired(coord))
+        run(rt, datetime(2026, 11, 16, 23, 0), 5)              # inverter holding on a full bank
+        assert fired(coord)[n:] == []
+
+    def test_bank_full_survives_a_restart(self):
+        rt, coord, world = make_runtime(planner="learned")
+        world.values["sensor.gauge"] = (100, "%")
+        run(rt, datetime(2026, 11, 16, 23, 0), 2)
+        assert rt.bank_full
+        rt2, _, _ = make_runtime(planner="learned")
+        rt2.load_state(rt.dump_state())
+        assert rt2.bank_full
+
+
+class TestHandoverRecord:
+    def test_the_first_touch_of_the_floor_in_peak_is_recorded(self):
+        rt, coord, world = make_runtime()
+
+        def falling(i, t):
+            world.values["sensor.gauge"] = (max(3, 12 - i // 10), "%")
+
+        run(rt, datetime(2026, 11, 16, 18, 0), 120, falling)
+        s = rt.daily_summary()
+        assert s["handover_at"] == "19:30" and s["handover_period"] == "peak"
+        assert s["handover_cost_kwh"] > 0
+
+    def test_not_on_a_weekend(self):
+        rt, coord, world = make_runtime()
+        world.values["sensor.gauge"] = (3, "%")
+        run(rt, datetime(2026, 11, 21, 18, 0), 5)
+        assert "handover_at" not in rt.daily_summary()

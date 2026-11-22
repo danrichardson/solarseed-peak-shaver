@@ -141,7 +141,10 @@
           "full_charge_months": "Months that charge to full every TOU night",
           "load_quantile": "Plan for this share of days (load quantile)",
           "solar_confidence": "Share of forecast solar to count on",
-          "gauge_floor_pct": "Gauge reading at which the inverter hands over to grid"
+          "gauge_floor_pct": "Gauge reading at which the inverter hands over to grid",
+          "handover_recovery_pct": "Gauge the inverter recharges to after a handover",
+          "peak_margin_kwh": "Reserve to keep above the handover at peak end",
+          "stale_minutes": "Minutes without change that mean the battery data is frozen"
         },
         "data_description": {
           "planner": "classic: the original planner controls the inverter and the learned planner only reports. learned: the learned planner controls the inverter.",
@@ -152,7 +155,10 @@
           "solar_forecast_tomorrow_entity": "Optional. Guessed from today's forecast sensor when empty.",
           "full_charge_months": "Comma-separated month numbers, for example 11,12,1.",
           "load_quantile": "0.8 means the plan covers the load of 8 days out of 10.",
-          "solar_confidence": "0.7 means only 70 percent of the forecast is relied on."
+          "solar_confidence": "0.7 means only 70 percent of the forecast is relied on.",
+          "handover_recovery_pct": "After handing the house to the grid at the floor, the inverter grid-charges its battery back to this level and stays on grid. The learned planner counts that charge as a cost of running out in peak.",
+          "peak_margin_kwh": "The learned planner tops up in mid-peak if the battery would end peak with less than this above the handover.",
+          "stale_minutes": "If neither the gauge nor any power sensor changes for this long, the readings count as missing: no learning, safe fallbacks, one alert. 0 turns the check off."
         }
       }
     }
