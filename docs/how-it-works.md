@@ -98,8 +98,10 @@ is saved hourly in the same storage file under `learning` and survives a restart
 **The rules**, in order (see the docstring of `planner.py`):
 
 1. Peak window: on battery. Never charge.
-2. Mid-peak: on battery. Charge only if the battery will not cover the peak window, as
-   late as will still finish by peak start.
+2. Mid-peak: on battery. Charge only if the battery will not cover the peak window with
+   the peak margin to spare, as late as will still finish by peak start. Since 0.8.0
+   any predicted shortfall starts a top-up and a running top-up goes 0.2 kWh past the
+   need (see "Handover as a cost" below).
 3. Night before a TOU day: in the "full" months charge from peak end until the inverter
    ends the charge, then hold until mid-peak start. In other months size the charge from
    the learned load (a high percentile) and discounted forecast solar, time it to finish
@@ -119,6 +121,75 @@ notifies.
 **Events map to modes** exactly as before: `charge_start` = charge, `charge_stop` = on
 battery, `preserve_start` = hold. Event data from the learned planner carries `planner`,
 `gauge`, `target_gauge` and `reason`.
+
+## 0.8.0 additions
+
+**Handover as a cost** (options `handover_recovery_pct`, default 10, and
+`peak_margin_kwh`, default 0.5). When the gauge reaches the floor the inverter hands the
+house to the grid, grid-charges its own battery back to the recovery level and stays on
+grid. Running out in peak therefore costs the shortfall plus that recharge, all at peak
+price. The planner prices the recharge from the learned grid-charge curve (floor to
+recovery level) and shows it as `handover_kwh` on the `Learned Plan` sensor and in the
+reason text. Because a mid-peak top-up is never dearer than running out, the old
+0.3 kWh tolerance is gone: any shortfall below the peak margin starts a top-up (still
+timed to finish at peak start), and a running top-up continues until it is 0.2 kWh past
+the need. The daily scorecard records `handover_at`, `handover_period` and
+`handover_cost_kwh` when the gauge first touches the floor inside the rate window.
+Nothing changes at night or in peak.
+
+**Staleness check** (option `stale_minutes`, default 20, 0 = off). The runtime notes
+when the gauge (or SOC sensor) and each power sensor last changed value. If none has
+changed for `stale_minutes`, the readings count as missing: nothing is learned, the last
+gauge reading is not bridged, inverter verification pauses, and the planner uses its
+no-gauge rules (night: charge to full; mid-peak: stay on battery, but finish a top-up
+already running; peak: never charge). One notification when it starts and one when the
+readings move again; `stale_minutes` is added to the daily scorecard and
+`battery_data_stale` to the `Learned Plan` sensor. The classic planner, while the
+readings are frozen, may start a charge but never stops one or releases a hold. Needs
+the load or grid power sensor; a hold can keep the gauge still for hours, so the gauge
+alone is not used. On the owner's system the AC500 power readings change every few
+seconds, so 20 minutes is a wide margin.
+
+**After a restart.** The classic planner's first calculation may start a charge but
+never stops one or releases a hold (0.7.1 fired nothing at all, which skipped a needed
+top-up after a mid-peak restart). The learned runtime, when no command younger than 90
+minutes was restored, reads the inverter's current mode from the power sensors (grid
+well above load: charging; grid about equal to load: hold; no grid: on battery) and
+continues from there, so its hysteresis keeps a hold. Its first acting tick fires only a
+charge; anything else waits a tick, and a mode it cannot read is adopted without an
+event (verification then checks it). `bank_full` is saved with the rest of the state.
+Handing control back to classic and later to learned starts the same way.
+
+**Third-party packs** (optional; options `pack_current_entities`,
+`pack_current_charge_positive`, `bus_voltage_entity`, `pack_capacity_ah`,
+`capacity_v_high`, `capacity_v_low`). Code: `packs.py`. For packs the inverter does not
+manage, give one current sensor per pack. After a restart two sensors per pack appear:
+
+- `<pack> Charge Estimate` (%): amp-hours out of the pack since the last full anchor
+  (the inverter's gauge reaching 100 %), against the rated capacity. Attributes show
+  the amp-hours, the anchor time, minutes of missing current data and the pack's own
+  BMS percent for comparison. Unknown until the first anchor. Charging back after the
+  anchor counts, up to full.
+- `<pack> Ah Between 53.0 And 51.5 V` (Ah): on each discharge that starts from a full
+  anchor, the amp-hours the pack delivered while the bus fell from the upper to the
+  lower voltage, plus the AC energy and mean load over the same stretch. One point per
+  anchor; a crossing must hold for 3 minutes. A recharge, more than 2 Ah of charging, a
+  gap of more than 10 minutes in any pack's current, or a restart longer than 5 minutes
+  discards the run. The attribute `history` lists the last 30 points; long-term
+  statistics give the chart over months. A slow fall is capacity loss; a step is a
+  pack or wiring problem. The voltages are under load, so compare runs of similar
+  `mean_kw`.
+
+The bus voltage is the configured sensor, else the mean of the packs' own `..._voltage`
+sensors; the BMS percent is found the same way (`..._battery`, `..._soc`). Currents are
+taken as positive into the pack (bms_ble's convention); turn the option off for packs
+that report discharge as positive. State is saved with the learned model, so a short
+restart keeps the count.
+
+Replayed on the 2026-11-21 run-down (recorder history, offline): anchor at the gauge's
+flip to 100 %, one run of 10.3 h between 53.0 and 51.5 V with 74-79 Ah per pack and
+16.5 kWh AC at 1.6 kW; at the handover the estimates read 16-21 % while the BMS
+counters read 3-24 %.
 
 ## State that does not survive an HA restart
 
