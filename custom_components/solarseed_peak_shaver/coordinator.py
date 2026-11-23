@@ -92,6 +92,8 @@ from .const import (
     SENSOR_PROJECTED_MIN,
     SENSOR_TARGET_SOC,
 )
+from .health import HEALTH_REVIEW, daily_message, grade_day, review_message
+from .health import status as health_status
 from .store import PeakShaverStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -360,8 +362,12 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
     # -----------------------------------------------------------------
     # Notifications
     # -----------------------------------------------------------------
-    def _notify(self, title: str, message: str) -> None:
-        """Send a notification if enabled and configured."""
+    def _notify(self, title: str, message: str, urgent: bool = False) -> None:
+        """Send a notification if enabled and configured.
+
+        `urgent` asks the phone app for an immediate, high-priority delivery (mobile_app
+        data keys); a notify service that rejects them gets the plain message instead.
+        """
         if not self.notifications_enabled or not self.notify_entity:
             return
 
@@ -372,13 +378,25 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             domain = "notify"
             service = service_target
 
+        payload = {"title": title, "message": message}
+        if urgent:
+            self.hass.async_create_task(self._async_notify_urgent(domain, service, payload))
+            return
         self.hass.async_create_task(
-            self.hass.services.async_call(
-                domain,
-                service,
-                {"title": title, "message": message},
-            )
+            self.hass.services.async_call(domain, service, payload)
         )
+
+    async def _async_notify_urgent(self, domain: str, service: str, payload: dict[str, Any]) -> None:
+        try:
+            await self.hass.services.async_call(
+                domain, service,
+                {**payload, "data": {"ttl": 0, "priority": "high",
+                                     "push": {"interruption-level": "time-sensitive"}}},
+            )
+        except Exception:  # noqa: BLE001 - not every notify service takes these keys
+            _LOGGER.warning("Notify service %s.%s rejected the priority options; sending plainly",
+                            domain, service)
+            await self.hass.services.async_call(domain, service, payload)
 
     # -----------------------------------------------------------------
     # Listeners
@@ -816,6 +834,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
 
         if not self.prediction_snapshots:
             _LOGGER.debug("No prediction snapshots for scoring on %s", today)
+            await self._async_score_health_only(today)
             return
 
         # Use the earliest snapshot as the primary prediction
@@ -977,6 +996,11 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             except Exception:  # noqa: BLE001
                 _LOGGER.exception("Could not add learned-planner summary to the scorecard")
 
+        # How the day actually went, from the meters (new key; the grade fields stay).
+        day_health = self._grade_health(today, scorecard.get("learned"))
+        if day_health is not None:
+            scorecard["health"] = day_health
+
         self.last_daily_scorecard = scorecard
 
         # Persist
@@ -1007,8 +1031,80 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         if self.data is not None:
             self.async_set_updated_data(self.data)
 
-        # Daily summary notification
-        self._send_daily_summary(scorecard)
+        # Daily notification: the health message when the meters could grade the day,
+        # else the old grade message (installs without the learned planner's sensors).
+        self._send_daily_notifications(scorecard)
+
+    # -----------------------------------------------------------------
+    # Health (0.8.1): the day graded from what the meters saw
+    # -----------------------------------------------------------------
+    def _health_enabled(self) -> bool:
+        runtime = getattr(self, "learned", None)
+        return bool(runtime is not None and runtime.sensors_configured)
+
+    def _grade_health(self, today: str, learned_summary: dict[str, Any] | None) -> dict[str, Any] | None:
+        """The `health` record for today, or None when it cannot be graded."""
+        if not self._health_enabled():
+            return None
+        try:
+            if learned_summary is None:
+                learned_summary = self.learned.daily_summary()
+            return grade_day(learned_summary, today)
+        except Exception:  # noqa: BLE001 - grading must never break the daily scoring
+            _LOGGER.exception("Could not grade the day's health")
+            return None
+
+    def health_records(self, exclude_date: str | None = None) -> list[dict[str, Any]]:
+        """Stored `health` records, oldest first."""
+        out: list[dict[str, Any]] = []
+        for card in (self.store.days if self.store else []):
+            record = card.get("health")
+            if isinstance(record, dict) and record.get("grade") and card.get("date") != exclude_date:
+                out.append(record)
+        return out
+
+    def health_summary(self) -> dict[str, Any]:
+        """Good, watch or review over the last 7 graded days (state None before the first)."""
+        return health_status(self.health_records())
+
+    async def _async_score_health_only(self, today: str) -> None:
+        """A day with no classic prediction snapshots can still be graded from the meters."""
+        runtime = getattr(self, "learned", None)
+        if not self._health_enabled():
+            return
+        try:
+            summary = runtime.daily_summary()
+        except Exception:  # noqa: BLE001
+            _LOGGER.exception("Could not read the learned-planner summary")
+            return
+        day_health = self._grade_health(today, summary)
+        if day_health is None:
+            return
+        scorecard = {"date": today, "learned": summary, "health": day_health}
+        self.store.add_scorecard(scorecard)
+        await self.store.async_save()
+        if self.data is not None:
+            self.async_set_updated_data(self.data)
+        self._send_daily_notifications(scorecard)
+
+    def _send_daily_notifications(self, scorecard: dict) -> None:
+        day_health = scorecard.get("health")
+        if day_health is None:
+            if not self._health_enabled() and "grade" in scorecard:
+                self._send_daily_summary(scorecard)
+            return
+        summary = self.health_summary()
+        _LOGGER.info(
+            "Daily health: %s | grid kWh mid-peak %.2f, peak %.2f | health %s",
+            day_health.get("grade"), day_health.get("grid_midpeak_kwh", 0.0),
+            day_health.get("grid_peak_kwh", 0.0), summary.get("state"),
+        )
+        title, body = daily_message(day_health, summary, "weekday" if self.weekdays_only else "day")
+        self._notify(title, body)
+        before = health_status(self.health_records(exclude_date=day_health.get("date")))
+        if summary.get("state") == HEALTH_REVIEW and before.get("state") != HEALTH_REVIEW:
+            title, body = review_message(summary)
+            self._notify(title, body, urgent=True)
 
     def _send_daily_summary(self, scorecard: dict) -> None:
         """Send a daily summary notification."""
@@ -1046,7 +1142,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             lines.append(f"Solar correction factor: {correction:.2f}")
 
         self._notify(
-            f"Solarseed Daily Report \u2014 {grade} ({score}/100)",
+            f"Solarseed Daily Report - {grade} ({score}/100)",
             "\n".join(lines),
         )
 

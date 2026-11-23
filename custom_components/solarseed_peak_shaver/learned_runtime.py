@@ -473,6 +473,11 @@ class LearnedRuntime:
         self._set_stale(frozen, now)
         if frozen and 0 < hours <= 1:
             self._shadow["stale_minutes"] = round(self._shadow.get("stale_minutes", 0) + hours * 60, 1)
+        if frozen and self._stale_since is not None:
+            # the longest single stretch of the day, for the health grade
+            episode = (now - self._stale_since).total_seconds() / 60.0
+            if episode > self._shadow.get("stale_longest_min", 0):
+                self._shadow["stale_longest_min"] = round(episode, 1)
 
     def _set_stale(self, frozen: bool, now: datetime) -> None:
         if frozen == self.data_stale:
@@ -652,6 +657,9 @@ class LearnedRuntime:
             v for h, v in self._day_kwh.items() if c.midpeak_start <= h < c.peak_end), 2)
         out["grid_kwh"] = {k: round(v, 2) for k, v in self._grid_kwh.items()}
         out.setdefault("stale_minutes", 0)
+        out.setdefault("stale_longest_min", 0)
+        out.setdefault("command_retries", 0)
+        out.setdefault("commands_not_followed", 0)
         return out
 
     # -----------------------------------------------------------------
@@ -711,10 +719,12 @@ class LearnedRuntime:
             self._retries += 1
             _LOGGER.warning("Inverter does not look like it is in %s mode; sending the command again (%d/%d)",
                             d.mode, self._retries, VERIFY_RETRIES)
+            self._shadow["command_retries"] = self._shadow.get("command_retries", 0) + 1
             self._fire(d.mode, gauge)
             self._commanded_at = now
         elif not self._alerted:
             self._alerted = True
+            self._shadow["commands_not_followed"] = self._shadow.get("commands_not_followed", 0) + 1
             _LOGGER.error("Inverter did not follow the %s command after %d attempts", d.mode, VERIFY_RETRIES)
             self.coord._notify(
                 "Solarseed - inverter not responding",

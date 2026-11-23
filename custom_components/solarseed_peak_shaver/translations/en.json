@@ -92,6 +92,9 @@
       },
       "learned_plan": {
         "name": "Learned Plan"
+      },
+      "health": {
+        "name": "Health"
       }
     }
   },

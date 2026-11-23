@@ -2,7 +2,7 @@
 
 DOMAIN = "solarseed_peak_shaver"
 NAME = "Solarseed Peak Shaver"
-VERSION = "0.8.0"
+VERSION = "0.8.1"
 
 # --- Config keys ---
 CONF_BATTERY_CAPACITY = "battery_capacity"
@@ -102,6 +102,9 @@ SENSOR_ROLLING_SCORE = "rolling_score"
 # --- Learned planner sensor keys ---
 SENSOR_LEARNED_ENERGY = "learned_energy_remaining"
 SENSOR_LEARNED_PLAN = "learned_plan"
+
+# --- Health sensor key (0.8.1) ---
+SENSOR_HEALTH = "health"
 
 # --- Events ---
 EVENT_CHARGE_START = f"{DOMAIN}_charge_start"

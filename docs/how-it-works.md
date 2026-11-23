@@ -70,6 +70,9 @@ Start at 100: -30 floor breached, -25 any charge started in mid-peak/peak, up to
 solar forecast error > 20%, up to -15 for min-SOC prediction error > 2 kWh, up to -15 for
 "unnecessary" charge (> 2 kWh charged beyond the 03:00 run's `charge_needed`). Grade A-F.
 The primary prediction scored is the *first* snapshot of the day (normally 03:00).
+Since 0.8.1 this grade is stored and shown (the `Daily Grade` sensor) but no longer
+notified when the learned planner's power sensors are configured: the day is graded from
+the meters instead, see "0.8.1 additions".
 
 ## Learned planner (0.7.0)
 
@@ -190,6 +193,72 @@ Replayed on the 2026-11-21 run-down (recorder history, offline): anchor at the g
 flip to 100 %, one run of 10.3 h between 53.0 and 51.5 V with 74-79 Ah per pack and
 16.5 kWh AC at 1.6 kW; at the handover the estimates read 16-21 % while the BMS
 counters read 3-24 %.
+
+## 0.8.1 additions
+
+**Startup guards (the classic planner).** On 2026-11-22 the first 0.8.0 restart started a
+grid charge for a few seconds: `sensor.available_battery_kwh` read a numeric 0.0 for about
+2 s while HA loaded, the first calculation wanted a 4.1 kWh charge, `charge_start` went
+out, and when the sensor loaded the target-reached listener sent `charge_stop`. The
+calculation had also run on a Sunday although weekdays-only is on. Three rules now apply:
+
+- A battery reading that is unavailable, unknown, empty or not a finite number is missing,
+  not 0 kWh. The calculation raises `UpdateFailed` (no calculation, no event, one log
+  line from HA); at setup HA retries until the sensor has a number. The battery and
+  checkpoint listeners ignore such readings too, so they can no longer "reach the
+  target" or pull the day's minimum to 0. A numeric 0.0 is still a reading.
+- The first calculation after a start that wants a charge does not act on it. It
+  schedules a second calculation `STARTUP_CONFIRM_SECONDS` (60) later and records no
+  prediction snapshot. That second look may start the charge, but, like the first, never
+  stops one or releases a hold; later calculations act as before. The learned planner is
+  not delayed (it reads the inverter's own gauge).
+- Weekdays only is honoured by every refresh, not just the scheduled ones: on a weekend
+  the setup refresh, the Recalculate button and the service update the sensors and fire
+  nothing, record nothing and score nothing. A weekend start still counts as the first
+  calculation, so Monday's 03:00 run is not restricted.
+
+**Daily health check** (`health.py`; pure functions). The old daily grade scores the
+classic planner's own predictions, so under the learned planner it grades a plan nobody
+follows. The day is now graded from what the meters saw, using the learned runtime's
+daily summary (so it needs the grid and load power sensors; without them the old grade
+notification is kept). First thresholds, constants in `health.py`; where a reading sits
+exactly on a boundary the worse grade wins:
+
+| | Good | Fair | Poor |
+|---|---|---|---|
+| Grid kWh in peak | under 0.2 | exactly 0.2 | over 0.2 |
+| Grid kWh in mid-peak | under 0.5 | 0.5 or more | - |
+| Handover (gauge hit the floor in the rate window) | none | any | - |
+| Longest frozen-data stretch | 30 min or less | over 30 | over 60 |
+| Inverter commands | all followed | - | one ignored after retries |
+| Gauge at peak end vs predicted | within 10 points | off by more | - |
+
+The grade is the worst row. "Grid kWh" is energy through the inverter's AC input in that
+price window, so a handover and a mid-peak top-up both show up; dollars are those two
+figures at the PGE Time of Day prices (constants: 16.70 and 43.13 cents). The scorecard
+gets a new `health` field (date, grade, reasons, grid kWh, dollars, gauge at peak end,
+predicted gauge, signed error `predicted - actual`, longest frozen stretch, commands not
+followed); the old grade fields stay and the store schema is unchanged. The learned
+summary gained `stale_longest_min`, `command_retries` and `commands_not_followed` to feed
+it. Weekends are not graded (the scoring timer skips them); holidays follow with
+ROADMAP item 7. A day with no grid readings and no frozen data is not graded and sends
+nothing.
+
+**Health sensor** (`Solarseed Peak Shaver Health`): `good`, `watch` or `review` over the
+last 7 graded days, unknown until the first. Review when any of the 7 was Poor, or the
+last 3 were all not Good, or the peak-end prediction was off the same way by more than
+8 points on average (needs 5 days with a prediction). Watch when there is a Fair day but
+no reason to review. Attributes: days graded, counts, the average bias, the reasons for a
+review and the 7 `health` records.
+
+**Notifications.** The daily message replaces the grade, one or two lines, ASCII, only on
+graded days: `Solarseed Daily Report - Good`, then for example "peak on battery, ended at
+12 % (predicted 9 %), $0.00 at mid-peak and peak prices." and "Last 7 weekdays: 6 good,
+1 fair." A day that went wrong names what happened ("peak bought 0.4 kWh, handover at
+16:10, ..."). A second message, `Solarseed - review needed`, goes out once when health
+changes to review, sent with the phone app's high-priority options (`ttl: 0`,
+`priority: high`, time-sensitive); a notify service that rejects those keys gets the
+plain message. A review session then follows the routine in `docs/tuning-log.md`.
 
 ## State that does not survive an HA restart
 

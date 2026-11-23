@@ -23,6 +23,7 @@ from .const import (
     SENSOR_CHARGE_NEEDED,
     SENSOR_DAILY_GRADE,
     SENSOR_EFFECTIVE_BASE_LOAD,
+    SENSOR_HEALTH,
     SENSOR_LEARNED_ENERGY,
     SENSOR_LEARNED_PLAN,
     SENSOR_PREDICTION_ACCURACY,
@@ -90,6 +91,14 @@ SENSOR_DESCRIPTIONS: dict[str, dict] = {
         "icon": "mdi:chart-line",
         "device_class": None,
         "state_class": SensorStateClass.MEASUREMENT,
+        "unit": None,
+    },
+    # --- Health (0.8.1): how the last 7 weekdays went, from the meters ---
+    SENSOR_HEALTH: {
+        "name": "Health",
+        "icon": "mdi:heart-pulse",
+        "device_class": None,
+        "state_class": None,
         "unit": None,
     },
     # --- Learned planner sensors ---
@@ -198,6 +207,9 @@ class PeakShaverSensor(CoordinatorEntity[PeakShaverCoordinator], SensorEntity):
                 return coord.store.rolling_score(days=7)
             return None
 
+        if self._sensor_key == SENSOR_HEALTH:
+            return coord.health_summary()["state"]
+
         if self._sensor_key in (SENSOR_LEARNED_ENERGY, SENSOR_LEARNED_PLAN):
             decision = getattr(getattr(coord, "learned", None), "decision", None)
             if decision is None:
@@ -289,6 +301,16 @@ class PeakShaverSensor(CoordinatorEntity[PeakShaverCoordinator], SensorEntity):
                 "recent_grades": coord.store.recent_grades(7),
                 "7_day_score": coord.store.rolling_score(7),
                 "30_day_score": coord.store.rolling_score(30),
+            }
+
+        if self._sensor_key == SENSOR_HEALTH:
+            summary = coord.health_summary()
+            return {
+                "days_graded": summary["days"],
+                "counts": summary["counts"],
+                "peak_end_bias_points": summary["bias_pts"],
+                "review_reasons": summary["review_reasons"],
+                "last_7_days": coord.health_records()[-7:],
             }
 
         runtime = getattr(coord, "learned", None)

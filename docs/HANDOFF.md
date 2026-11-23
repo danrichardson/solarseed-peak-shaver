@@ -1,6 +1,44 @@
 # Handoff - winter 2026 analysis and rework
 
-## RESUME HERE - Sunday 2026-11-22 afternoon: 0.8.0 installed, timers to restart
+## RESUME HERE - Sunday 2026-11-22 evening: 0.8.1 built on a branch, waiting for Dan
+
+**State (19:10).** Everything below under "Sunday afternoon" is done: the timers are
+running on the workstation (aiohttp, pytest, pytest-asyncio and pyyaml had to be
+reinstalled into Python 3.13 first; `analysis/scripts/ha.py` fails without aiohttp),
+the dry run of the planner switch is clean, and 0.8.1 (steps 3a and 3b) is built and
+tested on branch `release-0.8.1` in the worktree `../solarseed-peak-shaver-0.8.1`
+(380 tests). Nothing is pushed, merged, released or installed. The 21:00 switch to
+`learned` happens on the 0.8.0 code; the box stays on 0.8.0 until Dan releases 0.8.1.
+
+**Correction to step 3a's diagnosis.** The battery sensor did not read "unavailable":
+the recorder shows `sensor.available_battery_kwh` at a numeric `0.0` from 21:19:22.9 to
+21:19:24.8 UTC, then 23.27. Treating unavailable/unknown as missing (done) would not have
+stopped it, so 0.8.1 also makes the first calculation after a start that wants a charge
+wait 60 s and look again before it may start one. The `charge_stop` 1.8 s later was
+almost certainly the battery listener's "target reached" check (`_on_battery_update`,
+23.27 >= 4.1 + 0.1), not a recalculation; confirmed from the code and timing, not from
+the HA log (not reachable through `ha.py` today). Weekend start: confirmed, the setup
+refresh had no weekday check.
+
+**Next, in this order, each needing Dan's go:**
+1. Review the branch (`git log main..release-0.8.1`; two commits, tests, docs).
+2. Merge to `main` (fast-forward), push, tag `v0.8.1`, `gh release create v0.8.1`
+   (runbook below, "Deploy runbook"). Check `git log origin/main..main` first: four doc
+   commits from earlier sessions are unpushed too.
+3. Dan clicks install in HACS on an evening after 21:00, then restarts HA; the agent
+   verifies (`update.solarseed_peak_shaver_update` at v0.8.1; no `solarseed` errors; the
+   new `Solarseed Peak Shaver Health` sensor exists, unknown until the first TOU day is
+   graded at 21:10; planner still `learned`; the AC500 mode unchanged by the restart).
+   A restart on a weekday evening is now safe: nothing fires from the first reading.
+4. Monday 11-23 morning: `monday_check.py` prints the learned planner's first night.
+5. After the first week on 0.8.1: the first review session (`docs/tuning-log.md`).
+
+What 0.8.1 does: `docs/how-it-works.md`, "0.8.1 additions". Tuning log created with the
+review routine and the first threshold set. Still open: white paper 0.95 (separate
+session), PGE holidays (ROADMAP 7), tariff as data (ROADMAP 8; the health dollars use
+constants for now).
+
+## Earlier, Sunday 2026-11-22 afternoon: 0.8.0 installed, timers to restart (done)
 
 **State.** v0.8.0 is released (tag `v0.8.0`, GitHub release) and Dan installed it through
 HACS on Sunday afternoon, then restarted HA. Not yet verified by an agent. The planner
