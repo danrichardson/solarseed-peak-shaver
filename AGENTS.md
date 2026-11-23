@@ -41,7 +41,7 @@ automations, dashboard, template helpers). It is a snapshot, not the live config
 
 ## Working rules
 
-- **Tests:** `python -m pytest -q` from repo root (about 380 tests, a few seconds, needs `pytest pytest-asyncio pyyaml`). Run before every commit. CI (`.github/workflows/ci.yml`) also validates JSON files and runs on py3.12/3.13.
+- **Tests:** `python -m pytest -q` from repo root (about 390 tests, a few seconds, needs `pytest pytest-asyncio pyyaml`). Run before every commit. CI (`.github/workflows/ci.yml`) also validates JSON files and runs on py3.12/3.13.
 - **Version bumps** must touch both `const.py` `VERSION` and `manifest.json` `version`.
 - **Config keys are persisted** in users' config entries. Renaming/removing a `CONF_*` key or changing an event name is a breaking change - add migration or keep the old key.
 - **Store schema:** `store.py` `STORAGE_VERSION = 1`. Adding fields to scorecards is fine (readers use `.get`). Changing meaning of an existing field needs a version bump and a migration, or historical analysis silently mixes semantics.

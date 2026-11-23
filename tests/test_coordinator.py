@@ -41,6 +41,7 @@ def _make_coordinator(config_overrides=None, days=None):
     coord._events_armed = True
     coord._startup_recheck_unsub = None
     coord._recheck_restricted = False
+    coord._skipped_for = None
     coord.last_simulation_csv = ""
     coord.last_simulation_summary = ""
     coord._tracking_date = None

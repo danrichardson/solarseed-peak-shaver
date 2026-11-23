@@ -2,29 +2,51 @@
 
 ## RESUME HERE - Sunday 2026-11-22 evening: 0.8.1 built on a branch, waiting for Dan
 
-**State (19:10).** Everything below under "Sunday afternoon" is done: the timers are
-running on the workstation (aiohttp, pytest, pytest-asyncio and pyyaml had to be
-reinstalled into Python 3.13 first; `analysis/scripts/ha.py` fails without aiohttp),
-the dry run of the planner switch is clean, and 0.8.1 (steps 3a and 3b) is built and
-tested on branch `release-0.8.1` in the worktree `../solarseed-peak-shaver-0.8.1`
-(380 tests). Nothing is pushed, merged, released or installed. The 21:00 switch to
-`learned` happens on the 0.8.0 code; the box stays on 0.8.0 until Dan releases 0.8.1.
+**State.** Everything under "Sunday afternoon" below is done. The timers (21:00 switch,
+Monday check, minute logger) run on one workstation only, the one that ran the 0.8.1
+session; the switch and Monday-check copies on the other machine (the original
+workstation) were stopped on 2026-11-22. On the timer machine aiohttp, pytest,
+pytest-asyncio and pyyaml had to be reinstalled into Python 3.13 (`analysis/scripts/ha.py`
+fails without aiohttp). The dry run of the planner switch was clean. 0.8.1 (steps 3a and
+3b, plus the setup change below) is built and tested on branch `release-0.8.1` in the
+worktree `../solarseed-peak-shaver-0.8.1` (390 tests). The branch is on origin; `main`,
+tags and releases are untouched, and nothing is installed. The 21:00 switch to `learned`
+happens on the 0.8.0 code; the box stays on 0.8.0 until Dan releases 0.8.1.
 
-**Correction to step 3a's diagnosis.** The battery sensor did not read "unavailable":
-the recorder shows `sensor.available_battery_kwh` at a numeric `0.0` from 21:19:22.9 to
-21:19:24.8 UTC, then 23.27. Treating unavailable/unknown as missing (done) would not have
-stopped it, so 0.8.1 also makes the first calculation after a start that wants a charge
+**Box change, 2026-11-22 (approved by Dan).** The Available Battery kWh template helper
+(`sensor.available_battery_kwh`) now has the availability template
+`{{ is_number(states('sensor.ac500_total_battery_percent')) }}`, so an unknown gauge makes
+it unavailable instead of 0. Rollback copy of the helper as it was:
+`analysis/data/live_changes/template_available_battery_kwh_before_2026-11-22.json` (on the
+original workstation, not on the timer machine). Also in `docs/tuning-log.md`.
+
+**Step 3a, as it turned out.** At the 0.8.0 restart the AC500 gauge went unknown for
+about 3 s and `sensor.available_battery_kwh` showed a numeric `0.0` for that window (the
+recorder has it at `0.0` from 21:19:22.9 to 21:19:24.8 UTC, then 23.27), probably a
+template defaulting to 0. So treating unavailable/unknown as missing would not have
+stopped it, and 0.8.1 also makes the first calculation after a start that wants a charge
 wait 60 s and look again before it may start one. The `charge_stop` 1.8 s later was
 almost certainly the battery listener's "target reached" check (`_on_battery_update`,
 23.27 >= 4.1 + 0.1), not a recalculation; confirmed from the code and timing, not from
 the HA log (not reachable through `ha.py` today). Weekend start: confirmed, the setup
 refresh had no weekday check.
 
+**Setup no longer fails on a missing battery (changed before release).** The first draft
+raised `UpdateFailed` for an unavailable battery sensor. That fails the first refresh, so
+HA retries the setup and the learned planner, which is in control and does not use that
+sensor, would not start until the sensor had a number. Now the classic calculation is
+skipped, nothing fires, setup succeeds, and a returning reading triggers a recalculation.
+The same goes for a missing or empty solar forecast (decided in the same change; revert
+that part if a hard failure is preferred when Solcast is misconfigured). A test runs the
+real `async_setup_entry` with the battery unavailable and checks the learned runtime
+starts and still asks for the night charge.
+
 **Next, in this order, each needing Dan's go:**
-1. Review the branch (`git log main..release-0.8.1`; two commits, tests, docs).
+1. Review the branch (`git log main..release-0.8.1`; commits, tests, docs).
 2. Merge to `main` (fast-forward), push, tag `v0.8.1`, `gh release create v0.8.1`
-   (runbook below, "Deploy runbook"). Check `git log origin/main..main` first: four doc
-   commits from earlier sessions are unpushed too.
+   (runbook below, "Deploy runbook"). Check `git log origin/main..main` first: one doc
+   commit from an earlier session (`7d52d0e`, the 0.8.0 handoff) is not on `origin/main`;
+   it is already on the pushed branch, so merging publishes it.
 3. Dan clicks install in HACS on an evening after 21:00, then restarts HA; the agent
    verifies (`update.solarseed_peak_shaver_update` at v0.8.1; no `solarseed` errors; the
    new `Solarseed Peak Shaver Health` sensor exists, unknown until the first TOU day is

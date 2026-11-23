@@ -13,7 +13,7 @@ from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_change,
 )
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 from .const import (
     CONF_BASE_LOAD,
@@ -121,6 +121,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         self._events_armed: bool = False
         self._startup_recheck_unsub: CALLBACK_TYPE | None = None
         self._recheck_restricted: bool = False
+        self._skipped_for: str | None = None    # "battery" or "forecast" while a calculation is skipped
         self.last_simulation_csv: str = ""
         self.last_simulation_summary: str = ""
 
@@ -550,6 +551,12 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         if current_soc is None:
             return  # unavailable or unknown is a gap, not an empty battery
 
+        # The last calculation was skipped for want of this reading: it is back, so calculate
+        # now instead of waiting for the next scheduled run (the first calculation after a
+        # start is still the restricted one).
+        if self._skipped_for == "battery":
+            self.hass.async_create_task(self.async_request_refresh())
+
         # Track daily minimum during rate window
         if self._daily_min_tracking:
             self._daily_min_soc = min(self._daily_min_soc, current_soc)
@@ -558,10 +565,12 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         if not self._charging_active or self.planner == PLANNER_LEARNED:
             return
 
-        if self.data is None:
+        if not self.data:
             return
 
-        target_soc = self.data.get(SENSOR_TARGET_SOC, 0.0)
+        target_soc = self.data.get(SENSOR_TARGET_SOC)
+        if target_soc is None:
+            return  # no calculation yet, so no target to reach
 
         if current_soc >= target_soc + 0.1:
             self._charging_active = False
@@ -1216,6 +1225,19 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
     # -----------------------------------------------------------------
     # Core peak shaving calculation
     # -----------------------------------------------------------------
+    def _skip_calculation(self, kind: str, reason: str) -> dict[str, float]:
+        """No usable input: no classic calculation, no event, and setup does not fail.
+
+        Returns the last calculation (or nothing yet), so the sensors keep their last
+        values or show unknown. Logged once per kind of gap. A returning battery reading
+        asks for a recalculation (`_on_battery_update`); a returning forecast does too
+        (`_on_forecast_update`, within its window).
+        """
+        if self._skipped_for != kind:
+            _LOGGER.warning("Classic calculation skipped: %s. Nothing is fired until it is back.", reason)
+        self._skipped_for = kind
+        return dict(self.data) if self.data else {}
+
     async def _async_update_data(self) -> dict[str, float]:
         """Calculate the optimal battery charge target for peak shaving.
 
@@ -1239,28 +1261,26 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         log = _LOGGER.warning if self.verbose_logging else _LOGGER.debug
 
         # --- Current battery level ---
+        # A missing battery is not 0 kWh: 0.8.0 read it as an empty battery after a restart
+        # and started a charge. With no usable reading the classic calculation is skipped
+        # and nothing fires. Setup must not fail over it either: the learned planner is
+        # the one in control and does not use this sensor.
         soc_state = self.hass.states.get(self.battery_soc_entity)
-        if soc_state is None:
-            raise UpdateFailed(
-                f"Battery SOC entity {self.battery_soc_entity} not available"
-            )
-
-        # An unavailable or unknown battery is a missing reading, never 0 kWh: 0.8.0 read
-        # it as an empty battery after a restart and started a charge. UpdateFailed means
-        # no calculation and no event; at setup HA retries until the sensor has a number.
-        current_soc = self._read_float(soc_state.state)
+        current_soc = self._read_float(soc_state.state) if soc_state is not None else None
         if current_soc is None:
-            raise UpdateFailed(
-                f"Battery SOC entity {self.battery_soc_entity} has no reading "
-                f"(state {soc_state.state!r})"
+            return self._skip_calculation(
+                "battery",
+                f"battery SOC entity {self.battery_soc_entity} has no reading "
+                f"(state {soc_state.state if soc_state is not None else None!r})",
             )
 
         # --- Solar forecast ---
         hourly_solar = self._get_hourly_solar()
         if not hourly_solar:
-            raise UpdateFailed(
-                f"Solar forecast entity {self.solar_forecast_entity} has no data"
+            return self._skip_calculation(
+                "forecast", f"solar forecast entity {self.solar_forecast_entity} has no data"
             )
+        self._skipped_for = None
 
         now = self._now()
         current_hour = now.hour

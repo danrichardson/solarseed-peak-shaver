@@ -31,6 +31,14 @@ _HA_MODULES = [
 ]
 
 
+class _UpdateFailed(Exception):
+    """Stands in for homeassistant.helpers.update_coordinator.UpdateFailed."""
+
+
+class ConfigEntryNotReady(Exception):
+    """Stands in for homeassistant.exceptions.ConfigEntryNotReady."""
+
+
 def install_ha_mocks() -> None:
     """Inject mock modules into sys.modules for HA imports."""
     for mod_name in _HA_MODULES:
@@ -92,11 +100,18 @@ def install_ha_mocks() -> None:
         async def async_request_refresh(self):
             pass
 
+        async def async_config_entry_first_refresh(self):
+            # As in HA: a first refresh that fails stops the setup and HA retries later.
+            try:
+                self.data = await self._async_update_data()
+            except _UpdateFailed as err:
+                raise ConfigEntryNotReady(str(err)) from err
+
         def async_set_updated_data(self, data):
             self.data = data
 
     ha_update_coordinator.DataUpdateCoordinator = _FakeDataUpdateCoordinator
-    ha_update_coordinator.UpdateFailed = Exception
+    ha_update_coordinator.UpdateFailed = _UpdateFailed
 
     # Sensor / Button entity bases
     ha_sensor = sys.modules["homeassistant.components.sensor"]

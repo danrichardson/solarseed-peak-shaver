@@ -197,16 +197,28 @@ counters read 3-24 %.
 ## 0.8.1 additions
 
 **Startup guards (the classic planner).** On 2026-11-22 the first 0.8.0 restart started a
-grid charge for a few seconds: `sensor.available_battery_kwh` read a numeric 0.0 for about
-2 s while HA loaded, the first calculation wanted a 4.1 kWh charge, `charge_start` went
-out, and when the sensor loaded the target-reached listener sent `charge_stop`. The
-calculation had also run on a Sunday although weekdays-only is on. Three rules now apply:
+grid charge for a few seconds. The AC500 gauge went unknown for about 3 s while HA
+loaded, and `sensor.available_battery_kwh` (a template helper that defaulted to 0)
+showed a numeric 0.0 for that window. The first calculation read an empty battery and
+wanted a 4.1 kWh charge, `charge_start` went out, and when the sensor loaded the
+target-reached listener sent `charge_stop`. The calculation had also run on a Sunday
+although weekdays-only is on. Two fixes sit on either side of the integration. On the
+box (2026-11-22) the helper now has the availability template
+`{{ is_number(states('sensor.ac500_total_battery_percent')) }}`, so an unknown gauge makes
+it unavailable instead of 0. In the code, three rules apply:
 
-- A battery reading that is unavailable, unknown, empty or not a finite number is missing,
-  not 0 kWh. The calculation raises `UpdateFailed` (no calculation, no event, one log
-  line from HA); at setup HA retries until the sensor has a number. The battery and
-  checkpoint listeners ignore such readings too, so they can no longer "reach the
-  target" or pull the day's minimum to 0. A numeric 0.0 is still a reading.
+- A battery reading that is unavailable, unknown, empty or not a finite number (or an
+  entity that does not exist yet) is missing, not 0 kWh. The classic calculation is then
+  skipped and nothing fires; the sensors keep their last values (unknown before the
+  first calculation), and one warning is logged per gap. Setup does not fail over it:
+  the learned planner is the one in control and does not use this sensor, so a failed
+  first refresh would have kept it from starting. An empty solar forecast is treated the
+  same way. When a battery reading comes back, the listener asks for a recalculation
+  (still the restricted first one after a start) instead of waiting for the next
+  scheduled run. The battery and checkpoint listeners ignore missing readings too, so
+  they can no longer "reach the target" or pull the day's minimum to 0, and a charge
+  target that was never calculated is never "reached". A numeric 0.0 is still a reading,
+  which is why the next rule exists.
 - The first calculation after a start that wants a charge does not act on it. It
   schedules a second calculation `STARTUP_CONFIRM_SECONDS` (60) later and records no
   prediction snapshot. That second look may start the charge, but, like the first, never

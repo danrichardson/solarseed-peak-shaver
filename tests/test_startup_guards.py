@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -27,6 +27,7 @@ from tests.test_learned_runtime import (
     TestClassicRestart,
     fired,
     make_runtime,
+    run,
 )
 
 
@@ -56,12 +57,68 @@ class TestMissingBattery:
     def test_no_calculation_and_no_event(self, state, armed):
         rt, coord, world = _classic(armed=armed, battery=(state, "kWh"))
         with patch(CALL_LATER) as later:
-            with pytest.raises(Exception):               # UpdateFailed
-                _calc(coord)
+            result = _calc(coord)                        # skipped, not failed
+        assert result == {}
         assert fired(coord) == []
         assert coord.prediction_snapshots == []
         assert not later.called
         assert coord._charging_active is False
+        assert coord._events_armed is armed              # a skipped run is not "the first calculation"
+        assert coord._skipped_for == "battery"
+
+    def test_a_missing_entity_is_skipped_too(self):
+        rt, coord, world = _classic(armed=True)
+        del world.values["sensor.battery_soc"]
+        assert _calc(coord) == {}
+        assert fired(coord) == []
+
+    def test_an_empty_forecast_is_skipped_too(self):
+        rt, coord, world = _classic(armed=True, battery=(1.0, "kWh"))
+        coord.hass.states.get = world.get                # no Solcast entity at all
+        assert _calc(coord) == {}
+        assert fired(coord) == []
+        assert coord._skipped_for == "forecast"
+
+    def test_the_last_calculation_is_kept_while_the_battery_is_missing(self):
+        rt, coord, world = _classic(armed=True, battery=("unavailable", "kWh"))
+        coord.data = {"target_soc_kwh": 5.0, "charge_needed_kwh": 0.0}
+        assert _calc(coord) == {"target_soc_kwh": 5.0, "charge_needed_kwh": 0.0}
+
+    def test_the_gap_is_logged_once_and_again_after_it_closes(self):
+        rt, coord, world = _classic(armed=True, battery=("unavailable", "kWh"))
+        with patch("custom_components.solarseed_peak_shaver.coordinator._LOGGER") as log:
+            _calc(coord)
+            _calc(coord)
+            assert log.warning.call_count == 1
+            world.values["sensor.battery_soc"] = (20.0, "kWh")
+            _calc(coord)
+            assert coord._skipped_for is None
+            world.values["sensor.battery_soc"] = ("unavailable", "kWh")
+            _calc(coord)
+            assert log.warning.call_count == 2
+
+    def test_a_returning_battery_asks_for_a_recalculation(self):
+        rt, coord, world = _classic(battery=("unavailable", "kWh"))
+        _calc(coord)
+        coord._on_battery_update(_battery_event("unavailable"))
+        coord.hass.async_create_task.assert_not_called()
+        coord._on_battery_update(_battery_event("20.0"))
+        coord.hass.async_create_task.assert_called_once()
+        world.values["sensor.battery_soc"] = (20.0, "kWh")
+        _calc(coord)                                     # that recalculation: the restricted first one
+        assert coord._skipped_for is None and coord._events_armed is True
+        assert fired(coord) == []
+        coord.hass.async_create_task.reset_mock()
+        coord._on_battery_update(_battery_event("19.0"))
+        coord.hass.async_create_task.assert_not_called()  # nothing left to recover from
+
+    def test_a_charge_target_that_was_never_calculated_is_never_reached(self):
+        rt, coord, world = _classic(armed=True)
+        coord._charging_active = True
+        coord.data = {}
+        coord._on_battery_update(_battery_event("20.0"))
+        assert fired(coord) == []
+        assert coord._charging_active is True
 
     def test_a_real_zero_is_still_a_reading(self):
         # an empty battery is a legitimate value; only the first look at it is deferred
@@ -191,3 +248,72 @@ class TestWeekdaysOnly:
         with patch(CALL_LATER) as later:
             _calc(coord)
         later.assert_called_once()
+
+
+# --- setup with the battery sensor unavailable ---------------------------------------------
+
+
+class TestSetupWithMissingBattery:
+    """The learned planner is in control and does not use the kWh sensor, so a missing
+    one must not stop it from starting (a failed first refresh would)."""
+
+    @staticmethod
+    def _setup(battery, planner="learned", forecast=True):
+        from custom_components.solarseed_peak_shaver import async_setup_entry
+        from custom_components.solarseed_peak_shaver.const import CONF_PLANNER
+        from tests.conftest import _make_config_entry, _make_store
+        from tests.test_learned_runtime import ENTITIES, World
+
+        entry = _make_config_entry(data={**ENTITIES, CONF_PLANNER: planner})
+        store = _make_store()
+        store.async_load = AsyncMock()
+        world = World()
+        world.values["sensor.battery_soc"] = battery
+        hass = MagicMock()
+        hass.data = {}
+        hass.config_entries.async_forward_entry_setups = AsyncMock()
+        solar = MagicMock()
+        solar.state = "5.0"
+        solar.attributes = {"detailedHourly": [{"period_start": "2026-11-16T12:00:00", "pv_estimate": 1.0}]}
+        hass.states.get = lambda e: solar if (forecast and e == "sensor.solcast_today") else world.get(e)
+        with patch("custom_components.solarseed_peak_shaver.PeakShaverStore", return_value=store):
+            ok = asyncio.run(async_setup_entry(hass, entry))
+        return ok, hass, entry, world
+
+    @pytest.mark.parametrize("state", ["unavailable", "unknown"])
+    def test_the_learned_runtime_starts_while_the_battery_sensor_is_unavailable(self, state):
+        from custom_components.solarseed_peak_shaver.const import DOMAIN, EVENT_CHARGE_START
+
+        ok, hass, entry, world = self._setup((state, "kWh"))
+        assert ok is True
+        hass.config_entries.async_forward_entry_setups.assert_awaited_once()
+        coord = hass.data[DOMAIN][entry.entry_id]
+        rt = coord.learned
+        assert rt is not None and len(rt._unsub) == 1          # its minute timer is running
+        assert fired(coord) == []                              # the classic calculation fired nothing
+        # and it works: the night before a TOU day it asks for the charge
+        coord.hass.states.get = world.get
+        run(rt, datetime(2026, 11, 16, 20, 58), 2)
+        world.values["sensor.grid"] = (2400, "W")
+        run(rt, datetime(2026, 11, 16, 21, 0), 30)
+        assert fired(coord) == [EVENT_CHARGE_START]
+
+    def test_it_also_starts_without_a_forecast(self):
+        from custom_components.solarseed_peak_shaver.const import DOMAIN
+
+        ok, hass, entry, world = self._setup((20.0, "kWh"), forecast=False)
+        assert ok is True
+        assert hass.data[DOMAIN][entry.entry_id].learned is not None
+
+    def test_the_stand_in_for_ha_does_fail_a_first_refresh_that_raises(self):
+        # guards the test above: the fake coordinator turns a failed first refresh into
+        # ConfigEntryNotReady, as HA does, so a regression to UpdateFailed would be caught
+        from custom_components.solarseed_peak_shaver.coordinator import PeakShaverCoordinator
+        from homeassistant.helpers.update_coordinator import UpdateFailed
+        from tests.ha_mocks import ConfigEntryNotReady
+        from tests.test_coordinator import _make_coordinator
+
+        coord = _make_coordinator()
+        coord._async_update_data = AsyncMock(side_effect=UpdateFailed("x"))
+        with pytest.raises(ConfigEntryNotReady):
+            asyncio.run(PeakShaverCoordinator.async_config_entry_first_refresh(coord))

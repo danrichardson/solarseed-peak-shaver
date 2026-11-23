@@ -55,3 +55,27 @@ leave 11-26 out and judge it by the per-day targets and `replay_cost.py`.
 **Next review.** One week after 0.8.1 is installed. Check first whether the thresholds
 sort the days the way a human would (a Good day should not need a second look), and
 whether the 7-day window and the bias limit of 8 points are too tight or too loose.
+
+## 2026-11-22 - box: availability template on the Available Battery kWh helper
+
+**Why.** At the 0.8.0 restart the AC500 gauge went unknown for about 3 s and
+`sensor.available_battery_kwh` showed 0.0 for that window (a template defaulting to 0), so
+the classic planner read an empty battery and briefly started a charge (see 0.8.1 in
+`docs/how-it-works.md`). The code now guards against it (a missing reading is skipped, and
+the first calculation after a start waits 60 s before it may start a charge), but the
+sensor should not report 0 for "I do not know" in the first place.
+
+**What changed (box, not code; approved by the owner).** The Available Battery kWh
+template helper now has the availability template
+`{{ is_number(states('sensor.ac500_total_battery_percent')) }}`, so an unknown gauge makes
+it unavailable instead of 0. Applies from 2026-11-22, independent of the integration
+version. Rollback: the helper as it was is saved as
+`analysis/data/live_changes/template_available_battery_kwh_before_2026-11-22.json` (local
+only, on the original workstation).
+
+**What to watch.** After the next HA restart or gauge dropout the helper should go
+unavailable, not 0.0, and the integration should log one "Classic calculation skipped"
+warning (0.8.1 and later) instead of firing an event. The learned planner reads the
+gauge directly and is not affected. Anything else that reads this helper (dashboards,
+automations) will now see "unavailable" in those moments rather than 0; check the
+recorder for gaps instead of zeros when the next review pulls the data.
