@@ -1,6 +1,6 @@
 # Handoff - winter 2026 analysis and rework
 
-## RESUME HERE - Sunday 2026-11-22 evening: 0.8.1 built on a branch, waiting for Dan
+## RESUME HERE - Monday 2026-11-23: 0.8.1 built on a branch (with the idle fix), waiting for Dan
 
 **State.** Everything under "Sunday afternoon" below is done. The timers (21:00 switch,
 Monday check, minute logger) run on one workstation only, the one that ran the 0.8.1
@@ -9,9 +9,11 @@ workstation) were stopped on 2026-11-22. On the timer machine aiohttp, pytest,
 pytest-asyncio and pyyaml had to be reinstalled into Python 3.13 (`analysis/scripts/ha.py`
 fails without aiohttp). The dry run of the planner switch was clean. 0.8.1 (steps 3a and
 3b, plus the setup change below) is built and tested on branch `release-0.8.1` in the
-worktree `../solarseed-peak-shaver-0.8.1` (390 tests). The branch is on origin; `main`,
-tags and releases are untouched, and nothing is installed. The 21:00 switch to `learned`
-happens on the 0.8.0 code; the box stays on 0.8.0 until Dan releases 0.8.1.
+worktree `../solarseed-peak-shaver-0.8.1` (402 tests). Only the branch has been pushed
+(at Dan's request, and not since; newer commits are local); `main`, tags and releases are
+untouched, and nothing is installed. The switch to `learned` ran at 21:02 Sunday on the
+0.8.0 code and the planner read back as `learned`, in control; the box stays on 0.8.0
+until Dan releases 0.8.1.
 
 **Box change, 2026-11-22 (approved by Dan).** The Available Battery kWh template helper
 (`sensor.available_battery_kwh`) now has the availability template
@@ -30,6 +32,22 @@ almost certainly the battery listener's "target reached" check (`_on_battery_upd
 23.27 >= 4.1 + 0.1), not a recalculation; confirmed from the code and timing, not from
 the HA log (not reachable through `ha.py` today). Weekend start: confirmed, the setup
 refresh had no weekday check.
+
+**Monday check, 07:10, and the idle fix (0.8.1).** The learned planner is in control and the
+AC500 went to PV_PRIORITY at 07:00 on a full bank. The check also printed
+`battery_data_stale` true with `stale_minutes` 261 for the day. Cause: the staleness check
+calls the feed frozen when the gauge and the load, grid and PV sensors all sit exactly
+still for 20 min. On a full bank they do: the minute log has seven such stretches of 36 to
+173 min between 22:22 and 07:10 (gauge 98 to 100, every power sensor 0 W, pack and cell
+voltages still moving, so the feed was alive), and the 0 W continued in mid-peak after
+07:00. A fix limited to the mid-peak and peak windows, which I first proposed, would not
+have worked. Fixed instead: a system whose power sensors all read 10 W or less is idle,
+and the unchanged-timer restarts; a feed stuck on a non-zero value is still caught. A feed
+that freezes while idle is not (nothing is moving; SOC Low is the backstop). Without the
+fix an ordinary night graded Poor and would have sent a review notice. On the 0.8.0 box
+the false flag keeps happening until 0.8.1 is installed (alerts, stale flag in the daily
+scorecard); see `docs/tuning-log.md`, 2026-11-23. It only matters outside the
+full-charge months, when a stale night charges.
 
 **Setup no longer fails on a missing battery (changed before release).** The first draft
 raised `UpdateFailed` for an unavailable battery sensor. That fails the first refresh, so
@@ -51,8 +69,9 @@ starts and still asks for the night charge.
    verifies (`update.solarseed_peak_shaver_update` at v0.8.1; no `solarseed` errors; the
    new `Solarseed Peak Shaver Health` sensor exists, unknown until the first TOU day is
    graded at 21:10; planner still `learned`; the AC500 mode unchanged by the restart).
+   The next morning `battery_data_stale` should be false after an idle night.
    A restart on a weekday evening is now safe: nothing fires from the first reading.
-4. Monday 11-23 morning: `monday_check.py` prints the learned planner's first night.
+4. Done: the Monday 11-23 07:10 check ran (see above).
 5. After the first week on 0.8.1: the first review session (`docs/tuning-log.md`).
 
 What 0.8.1 does: `docs/how-it-works.md`, "0.8.1 additions". Tuning log created with the

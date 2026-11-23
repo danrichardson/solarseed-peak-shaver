@@ -167,7 +167,7 @@
           "solar_confidence": "0.7 means only 70 percent of the forecast is relied on.",
           "handover_recovery_pct": "After handing the house to the grid at the floor, the inverter grid-charges its battery back to this level and stays on grid. The learned planner counts that charge as a cost of running out in peak.",
           "peak_margin_kwh": "The learned planner tops up in mid-peak if the battery would end peak with less than this above the handover.",
-          "stale_minutes": "If neither the gauge nor any power sensor changes for this long, the readings count as missing: no learning, safe fallbacks, one alert. 0 turns the check off.",
+          "stale_minutes": "If neither the gauge nor any power sensor changes for this long while power is flowing, the readings count as missing: no learning, safe fallbacks, one alert. An idle system (every power sensor at zero) is not frozen. 0 turns the check off.",
           "pack_current_entities": "Optional. One current sensor per pack the inverter does not manage. Adds a charge estimate (amp-hours from the last full charge) and a capacity trend sensor per pack after a restart. Voltage and percent sensors of the same pack are found by name (..._voltage, ..._battery).",
           "pack_current_charge_positive": "Turn off if the pack reports discharge as a positive current.",
           "bus_voltage_entity": "Optional. Empty: the mean of the packs' own voltage sensors.",

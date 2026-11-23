@@ -79,3 +79,29 @@ warning (0.8.1 and later) instead of firing an event. The learned planner reads 
 gauge directly and is not affected. Anything else that reads this helper (dashboards,
 automations) will now see "unavailable" in those moments rather than 0; check the
 recorder for gaps instead of zeros when the next review pulls the data.
+
+## 2026-11-23 - 0.8.1: the frozen-data check ignores an idle system
+
+**What we saw.** The first Monday check on the learned planner (07:10) showed
+`battery_data_stale` true and `stale_minutes` 261 for the day on a healthy, full bank. The
+minute log from 22:22 to 07:10 has seven stretches of 36 to 173 min (longest 02:56 to 05:49)
+where the gauge and the AC input, AC output and DC input power all read the same value (the
+gauge 98 to 100, power 0 W) while pack and cell voltages kept changing. The same 0 W
+continued after 07:00, in mid-peak, so a rule limited to the mid-peak and peak windows would
+not have fixed it. Under the 0.8.1 grading each of those stretches was over 60 min, so an
+ordinary full-bank night would have graded Poor and sent a review notice.
+
+**What changed (0.8.1, not installed).** A system whose configured power sensors all read
+10 W or less is idle, and the unchanged-timer restarts while it is. A feed stuck on a
+non-zero value is still caught after 20 min. The "battery data frozen" notification now says
+"while power was flowing". Constant `IDLE_POWER_KW` in `learned_runtime.py`. The thresholds
+in the 2026-11-22 entry are unchanged.
+
+**Cost on the box until 0.8.1 is installed.** The 0.8.0 check keeps flagging idle stretches:
+expect the "battery data frozen" / "battery data back" notifications and a stale flag in
+the daily scorecard. In the full-charge months a stale night only means charging a bank
+that is already full; outside them it would charge unnecessarily.
+
+**Next review.** After the first week on 0.8.1, check `stale_minutes` and
+`stale_longest_min` in the scorecards: they should be near zero on ordinary days. A real
+freeze while idle is invisible by design; if one shows up in the raw history, revisit.

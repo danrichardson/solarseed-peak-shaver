@@ -50,6 +50,7 @@ VERIFY_RETRIES = 3          # per commanded mode; not replenished until the mode
 VERIFY_MISMATCH_MIN = 2     # consecutive minutes of disagreement before sending again
 GAUGE_GRACE_MIN = 15        # minutes a missing gauge is bridged with its last reading
 TICK_FAILS_FAILSAFE = 10    # consecutive failed ticks before returning the inverter to battery
+IDLE_POWER_KW = 0.01        # every power sensor at or under this (10 W) means nothing is moving
 PUBLISH_EVERY_MIN = 5       # sensors are refreshed on a change, and at least this often
 FULL_CONFIRM_MIN = 10       # minutes of "charging asked, nothing going in" that mean full
 TOPUP_MAX_HOURS = 24        # a weekly top-up that has not finished by then is abandoned
@@ -452,6 +453,13 @@ class LearnedRuntime:
         Watches the gauge (or the SOC sensor) and the power sensors together: the house
         load moves every minute on live data, while a hold can keep the gauge still for
         hours. Needs at least one power sensor; 0 minutes turns the check off.
+
+        An idle system is not frozen. When every power sensor reads (about) zero nothing is
+        moving through the inverter, a full bank has nothing to report, and live readings sit
+        exactly still for hours (seen on the owner's AC500, 2026-11-23: seven stretches of
+        36-173 min overnight with the pack voltages still moving). A frozen feed cannot be told
+        from that, and nothing the planner needs is hidden by it, so while the system is idle
+        the unchanged-timer restarts. A feed stuck on a non-zero value is still caught.
         """
         c = self.coord
         limit = c.stale_minutes
@@ -467,7 +475,7 @@ class LearnedRuntime:
             if self._seen.get(entity_id) != val:
                 self._seen[entity_id] = val
                 self._last_change = now
-        if self._last_change is None:
+        if self._last_change is None or self._is_idle():
             self._last_change = now
         frozen = (now - self._last_change).total_seconds() >= limit * 60
         self._set_stale(frozen, now)
@@ -478,6 +486,21 @@ class LearnedRuntime:
             episode = (now - self._stale_since).total_seconds() / 60.0
             if episode > self._shadow.get("stale_longest_min", 0):
                 self._shadow["stale_longest_min"] = round(episode, 1)
+
+    def _is_idle(self) -> bool:
+        """True when every configured power sensor is readable and at (about) zero.
+
+        One unreadable sensor means we cannot say the system is idle, so it is not.
+        """
+        c = self.coord
+        ids = [e for e in (c.load_power_entity, c.grid_power_entity, c.pv_power_entity) if e]
+        if not ids:
+            return False
+        for entity_id in ids:
+            kw = self._power_kw(entity_id)
+            if kw is None or abs(kw) > IDLE_POWER_KW:
+                return False
+        return True
 
     def _set_stale(self, frozen: bool, now: datetime) -> None:
         if frozen == self.data_stale:
@@ -493,7 +516,8 @@ class LearnedRuntime:
                 self._stale_alerted = True
                 c._notify(
                     "Solarseed - battery data frozen",
-                    "No change in the battery gauge or the inverter power readings for %.0f minutes. "
+                    "No change in the battery gauge or the power readings for %.0f minutes while "
+                    "power was flowing. "
                     "The planner treats the battery as unreadable: no learning, night falls back to "
                     "charging, mid-peak stays on battery, peak never charges. The inverter's own "
                     "SOC Low is the backstop." % c.stale_minutes)

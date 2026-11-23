@@ -12,7 +12,7 @@ from custom_components.solarseed_peak_shaver.const import (
     EVENT_CHARGE_START,
     SENSOR_HEALTH,
 )
-from custom_components.solarseed_peak_shaver.health import FAIR, GOOD, POOR
+from custom_components.solarseed_peak_shaver.health import FAIR, GOOD, POOR, grade_day
 from tests.test_learned_runtime import fired, make_runtime, run
 from tests.test_health import grid, summary
 
@@ -208,6 +208,19 @@ class TestRuntimeCounters:
         s = rt.daily_summary()
         assert s["commands_not_followed"] == 0 and s["command_retries"] == 0
         assert fired(coord).count(EVENT_CHARGE_START) == 1
+
+    def test_an_idle_full_bank_night_still_grades_good(self):
+        """The 2026-11-23 false alarm: seven still stretches overnight graded Poor (over 60 min)."""
+        rt, coord, world = make_runtime(planner="classic")
+        world.frozen = True                                  # exactly still, nothing moving
+        world.values["sensor.gauge"] = (100, "%")
+        world.values["sensor.load"] = (0, "W")
+        run(rt, datetime(2026, 11, 23, 0, 5), 400)
+        s = rt.daily_summary()
+        day = grade_day(summary(stale_minutes=s["stale_minutes"], stale_longest_min=s["stale_longest_min"]),
+                        "2026-11-23")
+        assert day["grade"] == GOOD
+        assert day["frozen_longest_min"] == 0
 
     def test_the_longest_frozen_stretch_is_recorded(self):
         rt, coord, world = make_runtime(planner="classic")

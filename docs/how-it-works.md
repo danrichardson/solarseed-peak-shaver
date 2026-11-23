@@ -150,8 +150,18 @@ readings move again; `stale_minutes` is added to the daily scorecard and
 `battery_data_stale` to the `Learned Plan` sensor. The classic planner, while the
 readings are frozen, may start a charge but never stops one or releases a hold. Needs
 the load or grid power sensor; a hold can keep the gauge still for hours, so the gauge
-alone is not used. On the owner's system the AC500 power readings change every few
-seconds, so 20 minutes is a wide margin.
+alone is not used.
+
+*An idle system is not frozen (0.8.1).* When every configured power sensor reads 10 W or
+less, nothing is moving through the inverter and the readings sit exactly still, so
+the timer restarts instead of running. The first version assumed the AC500 readings
+change every few seconds; on 2026-11-23 the minute log showed otherwise: a full bank
+overnight, and again in mid-peak, read 0 W on every power sensor for stretches of 36 to
+173 min while the pack voltages kept moving, and the check called all of it frozen
+(alerts, no learning, night falling back to charging, and a Poor health grade). A feed stuck
+on a non-zero value is still caught. A feed that freezes while the system is idle is not:
+nothing is moving for the planner to miss, and the inverter's own SOC Low is the
+backstop if something starts.
 
 **After a restart.** The classic planner's first calculation may start a charge but
 never stops one or releases a hold (0.7.1 fired nothing at all, which skipped a needed
@@ -241,7 +251,7 @@ exactly on a boundary the worse grade wins:
 | Grid kWh in peak | under 0.2 | exactly 0.2 | over 0.2 |
 | Grid kWh in mid-peak | under 0.5 | 0.5 or more | - |
 | Handover (gauge hit the floor in the rate window) | none | any | - |
-| Longest frozen-data stretch | 30 min or less | over 30 | over 60 |
+| Longest frozen-data stretch (an idle system is not frozen) | 30 min or less | over 30 | over 60 |
 | Inverter commands | all followed | - | one ignored after retries |
 | Gauge at peak end vs predicted | within 10 points | off by more | - |
 

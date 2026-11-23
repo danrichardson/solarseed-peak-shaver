@@ -463,6 +463,93 @@ class TestStaleness:
         run(rt, datetime(2026, 11, 16, 22, 0), 180)
         assert not rt.data_stale
 
+    # --- an idle system is not a frozen one (found on the owner's AC500, 2026-11-23) ---------
+
+    def _idle_night(self, **overrides):
+        """Full bank, nothing moving: every reading exactly still, as the real sensors sit."""
+        rt, coord, world = make_runtime(**overrides)
+        coord._notify = MagicMock()
+        world.frozen = True                                    # no wobble: readings are exactly constant
+        world.values["sensor.gauge"] = (100, "%")
+        world.values["sensor.load"] = (0, "W")
+        return rt, coord, world
+
+    @staticmethod
+    def _frozen_alerts(coord):
+        return [c for c in coord._notify.call_args_list if c.args[0] == "Solarseed - battery data frozen"]
+
+    def test_an_idle_full_bank_is_not_frozen_however_long(self):
+        rt, coord, world = self._idle_night()
+        run(rt, datetime(2026, 11, 23, 0, 5), 400)             # nearly seven hours of nothing moving
+        assert not rt.data_stale
+        assert self._frozen_alerts(coord) == []
+        s = rt.daily_summary()
+        assert s["stale_minutes"] == 0 and s["stale_longest_min"] == 0
+
+    def test_an_idle_night_does_not_fall_back_to_charging(self):
+        """The cost of the false alarm: frozen means night charges to full, idle or not."""
+        rt, coord, world = _trained_runtime(planner="learned")
+        world.values["sensor.gauge"] = (90, "%")               # March: sized night, plenty on board
+        run(rt, datetime(2026, 3, 16, 22, 0), 3)
+        assert rt.decision.mode in (MODE_DISCHARGE, MODE_HOLD)
+        world.frozen = True                                    # exactly still...
+        world.values["sensor.load"] = (0, "W")                 # ...and nothing moving
+        run(rt, datetime(2026, 3, 16, 22, 3), 60)
+        assert not rt.data_stale
+        assert rt.decision.mode in (MODE_DISCHARGE, MODE_HOLD)
+        assert EVENT_CHARGE_START not in fired(coord)
+
+    @pytest.mark.parametrize("watts", [0, 5, 9])
+    def test_a_few_watts_still_counts_as_idle(self, watts):
+        rt, coord, world = self._idle_night()
+        world.values["sensor.load"] = (watts, "W")
+        run(rt, datetime(2026, 11, 23, 0, 5), 90)
+        assert not rt.data_stale
+
+    @pytest.mark.parametrize("watts", [50, 600])
+    def test_power_that_is_flowing_but_never_changes_is_frozen(self, watts):
+        rt, coord, world = self._idle_night()
+        world.values["sensor.load"] = (watts, "W")
+        run(rt, datetime(2026, 11, 23, 0, 5), 30)
+        assert rt.data_stale
+        assert len(self._frozen_alerts(coord)) == 1
+
+    def test_idle_is_judged_in_kw_too(self):
+        rt, coord, world = self._idle_night()
+        world.values["sensor.load"] = (0.0, "kW")
+        run(rt, datetime(2026, 11, 23, 0, 5), 90)
+        assert not rt.data_stale
+        world.values["sensor.load"] = (0.5, "kW")              # 500 W stuck
+        run(rt, datetime(2026, 11, 23, 1, 35), 30)
+        assert rt.data_stale
+
+    def test_one_unreadable_power_sensor_is_not_idle(self):
+        rt, coord, world = self._idle_night()
+        world.values["sensor.grid"] = ("unavailable", "W")     # cannot say nothing is moving
+        run(rt, datetime(2026, 11, 23, 0, 5), 40)
+        assert rt.data_stale
+
+    def test_a_feed_stuck_after_the_idle_stretch_is_caught_from_when_power_started(self):
+        rt, coord, world = self._idle_night()
+        t = run(rt, datetime(2026, 11, 23, 3, 0), 120)         # two idle hours: fine
+        assert not rt.data_stale
+        world.values["sensor.load"] = (600, "W")               # the house wakes up, the feed sticks
+        t = run(rt, t, 15)
+        assert not rt.data_stale
+        run(rt, t, 10)
+        assert rt.data_stale
+        assert rt.daily_summary()["stale_longest_min"] < 35    # not counted from the idle hours before
+
+    def test_going_idle_after_a_real_freeze_ends_it_for_good(self):
+        rt, coord, world = self._freeze_midday()
+        t = run(rt, datetime(2026, 11, 16, 10, 0), 30)
+        assert rt.data_stale
+        world.values["sensor.load"] = (0, "W")                 # everything stops: now just idle
+        t = run(rt, t, 2)
+        assert not rt.data_stale
+        run(rt, t, 60)
+        assert not rt.data_stale
+
     def test_zero_turns_the_check_off(self):
         from custom_components.solarseed_peak_shaver.const import CONF_STALE_MINUTES
 
