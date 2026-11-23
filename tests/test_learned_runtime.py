@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -19,6 +19,7 @@ from custom_components.solarseed_peak_shaver.const import (
     EVENT_CHARGE_START,
     EVENT_CHARGE_STOP,
     EVENT_PRESERVE_START,
+    STARTUP_CONFIRM_SECONDS,
 )
 from custom_components.solarseed_peak_shaver.learned_runtime import (
     LearnedRuntime,
@@ -26,6 +27,8 @@ from custom_components.solarseed_peak_shaver.learned_runtime import (
     mode_matches,
 )
 from custom_components.solarseed_peak_shaver.planner import MODE_CHARGE, MODE_DISCHARGE, MODE_HOLD
+
+CALL_LATER = "custom_components.solarseed_peak_shaver.coordinator.async_call_later"
 
 ENTITIES = {
     CONF_GAUGE_ENTITY: "sensor.gauge",
@@ -230,13 +233,18 @@ class TestClassicStandsDown:
         assert coord._charging_active is False
 
 
+WEEKDAY_NOON = datetime(2026, 11, 17, 12, 0)     # a Tuesday
+SATURDAY_NOON = datetime(2026, 11, 21, 12, 0)
+
+
 class TestClassicRestart:
-    def _solar(self, coord, world):
+    def _solar(self, coord, world, now=WEEKDAY_NOON):
         solar = MagicMock()
         solar.state = "5.0"
         solar.attributes = {"detailedHourly": [{"period_start": "2026-11-16T12:00:00", "pv_estimate": 1.0}]}
         base_get = world.get
         coord.hass.states.get = lambda e: solar if e == "sensor.solcast_today" else base_get(e)
+        coord._now = lambda: now                    # the classic planner reads the clock
 
     def test_first_calculation_after_start_fires_nothing(self):
         import asyncio
@@ -501,14 +509,20 @@ class TestStaleness:
 class TestFirstTickAfterStart:
     """ROADMAP item 5: a restart never releases a hold or stops a charge."""
 
-    def test_classic_first_calculation_may_start_a_charge(self):
+    def test_classic_first_calculation_may_start_a_charge_after_a_second_look(self):
         import asyncio
 
         rt, coord, world = make_runtime(planner="classic")
         TestClassicRestart()._solar(coord, world)
         coord._events_armed = False
+        coord.async_request_refresh = MagicMock()
         world.values["sensor.battery_soc"] = (1.0, "kWh")
-        asyncio.run(coord._async_update_data())
+        with patch(CALL_LATER) as later:
+            asyncio.run(coord._async_update_data())
+            assert fired(coord) == []                            # the first reading never acts
+            assert later.call_args.args[1] == STARTUP_CONFIRM_SECONDS
+            later.call_args.args[2](WEEKDAY_NOON)                # the timer fires
+        asyncio.run(coord._async_update_data())                  # the refresh it asked for
         assert fired(coord) == [EVENT_CHARGE_START]
 
     def test_a_hold_seen_after_a_restart_is_kept(self):

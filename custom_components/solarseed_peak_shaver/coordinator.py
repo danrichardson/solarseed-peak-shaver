@@ -9,6 +9,7 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, Event, callback
 from homeassistant.helpers.event import (
+    async_call_later,
     async_track_state_change_event,
     async_track_time_change,
 )
@@ -84,6 +85,7 @@ from .const import (
     EVENT_PRESERVE_START,
     PLANNER_CLASSIC,
     PLANNER_LEARNED,
+    STARTUP_CONFIRM_SECONDS,
     SENSOR_BATTERY_AT_PEAK,
     SENSOR_CHARGE_BELOW,
     SENSOR_CHARGE_NEEDED,
@@ -111,9 +113,12 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         self.store = store
         self._unsub_listeners: list[CALLBACK_TYPE] = []
         self._charging_active: bool = False
-        # The first calculation after a (re)start only computes. Firing from it would
-        # change the inverter's mode on every restart (0.7.0 released a hold that way).
+        # The first calculation after a (re)start never stops a charge or releases a hold
+        # (0.7.0 released a hold that way), and a charge it wants is only started after a
+        # second look STARTUP_CONFIRM_SECONDS later (0.8.0 started one on a bogus 0.0 kWh).
         self._events_armed: bool = False
+        self._startup_recheck_unsub: CALLBACK_TYPE | None = None
+        self._recheck_restricted: bool = False
         self.last_simulation_csv: str = ""
         self.last_simulation_summary: str = ""
 
@@ -460,6 +465,9 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         for unsub in self._unsub_listeners:
             unsub()
         self._unsub_listeners.clear()
+        if self._startup_recheck_unsub is not None:
+            self._startup_recheck_unsub()
+            self._startup_recheck_unsub = None
 
     @callback
     def _on_scheduled_time(self, now: datetime) -> None:
@@ -467,6 +475,21 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         if self.weekdays_only and now.weekday() >= 5:
             _LOGGER.debug("Skipped calculation (weekend)")
             return
+        self.hass.async_create_task(self.async_request_refresh())
+
+    def _schedule_startup_recheck(self) -> None:
+        """Arrange the second look at a charge the first calculation after a start wanted."""
+        if self._startup_recheck_unsub is not None:
+            return
+        self._startup_recheck_unsub = async_call_later(
+            self.hass, STARTUP_CONFIRM_SECONDS, self._on_startup_recheck
+        )
+
+    @callback
+    def _on_startup_recheck(self, _now: datetime) -> None:
+        """The second look: recalculate. It may start a charge but never stop one."""
+        self._startup_recheck_unsub = None
+        self._recheck_restricted = True
         self.hass.async_create_task(self.async_request_refresh())
 
     @callback
@@ -505,7 +528,9 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         if new_state is None:
             return
 
-        current_soc = self._safe_float(new_state.state)
+        current_soc = self._read_float(new_state.state)
+        if current_soc is None:
+            return  # unavailable or unknown is a gap, not an empty battery
 
         # Track daily minimum during rate window
         if self._daily_min_tracking:
@@ -607,7 +632,9 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         soc_state = self.hass.states.get(self.battery_soc_entity)
         if soc_state is None:
             return
-        current_soc = self._safe_float(soc_state.state)
+        current_soc = self._read_float(soc_state.state)
+        if current_soc is None:
+            return  # no checkpoint beats a checkpoint of 0 kWh
         hour = now.hour
 
         if hour == self.midpeak_start:
@@ -671,6 +698,26 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         except (ValueError, TypeError):
             pass
         return float(default)
+
+    @staticmethod
+    def _read_float(value: Any) -> float | None:
+        """A sensor reading as a float, or None when there is no usable reading.
+
+        "unavailable", "unknown", an empty or non-numeric string, NaN and infinity are
+        all missing. Use this for the battery: `_safe_float` turns a missing reading
+        into 0.0, which the planner takes for an empty battery.
+        """
+        if value is None:
+            return None
+        try:
+            number = float(str(value).strip())
+        except ValueError:
+            return None
+        return number if math.isfinite(number) else None
+
+    def _now(self) -> datetime:
+        """Local time; one place to override in tests."""
+        return datetime.now()
 
     def _classify_period(self, dt: datetime) -> str:
         """Classify a datetime into off-peak, mid-peak, or peak."""
@@ -1102,7 +1149,15 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
                 f"Battery SOC entity {self.battery_soc_entity} not available"
             )
 
-        current_soc = self._safe_float(soc_state.state)
+        # An unavailable or unknown battery is a missing reading, never 0 kWh: 0.8.0 read
+        # it as an empty battery after a restart and started a charge. UpdateFailed means
+        # no calculation and no event; at setup HA retries until the sensor has a number.
+        current_soc = self._read_float(soc_state.state)
+        if current_soc is None:
+            raise UpdateFailed(
+                f"Battery SOC entity {self.battery_soc_entity} has no reading "
+                f"(state {soc_state.state!r})"
+            )
 
         # --- Solar forecast ---
         hourly_solar = self._get_hourly_solar()
@@ -1111,7 +1166,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
                 f"Solar forecast entity {self.solar_forecast_entity} has no data"
             )
 
-        now = datetime.now()
+        now = self._now()
         current_hour = now.hour
 
         # --- Project battery level at mid-peak start ---
@@ -1239,8 +1294,36 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             SENSOR_CHARGE_BELOW: round(charge_below, 2),
         }
 
+        wants_charge = charge_needed > self.charge_threshold
+
+        # Weekdays only: the listeners already skip weekends, but the refresh at setup,
+        # the Recalculate button and the service do not. They still update the sensors;
+        # nothing is fired, scored or recorded (0.8.0 ran a full calculation on a Sunday).
+        if self.weekdays_only and now.weekday() >= 5:
+            _LOGGER.debug("Weekend with weekdays-only on: sensors updated, no events")
+            if self.planner != PLANNER_LEARNED:
+                self._events_armed = True  # a weekend start must not restrict Monday's 03:00
+            return result
+
+        # First calculation after a (re)start that wants a charge: do not act on it. A
+        # sensor can read wrongly for a moment while HA loads, and the reading would also
+        # become the day's primary prediction. Look again shortly; only that second
+        # calculation may start the charge.
+        first_calc = self.planner != PLANNER_LEARNED and not self._events_armed
+        recheck = self._recheck_restricted
+        self._recheck_restricted = False
+        if first_calc and wants_charge:
+            self._events_armed = True
+            self._schedule_startup_recheck()
+            _LOGGER.info(
+                "First calculation since start wants a %.1f kWh charge (battery %.1f kWh): "
+                "checking again in %d s before starting it",
+                charge_needed, current_soc, STARTUP_CONFIRM_SECONDS,
+            )
+            return result
+
         # Record prediction snapshot for performance tracking
-        charging_triggered = charge_needed > self.charge_threshold
+        charging_triggered = wants_charge
         self._record_prediction_snapshot(
             run_type="scheduled",
             current_soc=current_soc,
@@ -1268,16 +1351,17 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             self._charging_active = False
             return result
 
-        # First calculation after a (re)start, or battery readings frozen: a charge may
-        # start, but a hold is never released and a charge never stopped. Releasing from
-        # an unverified state cost a night's hold in 0.7.0; firing nothing (0.7.1) skipped
-        # a needed top-up after a mid-peak restart.
-        first_calc = not self._events_armed
+        # First calculation after a (re)start, the second look that follows it, or battery
+        # readings frozen: a charge may start, but a hold is never released and a charge
+        # never stopped. Releasing from an unverified state cost a night's hold in 0.7.0;
+        # firing nothing (0.7.1) skipped a needed top-up after a mid-peak restart.
         self._events_armed = True
-        if (first_calc or self.battery_data_stale) and not charge_needed > self.charge_threshold:
+        if (first_calc or recheck or self.battery_data_stale) and not wants_charge:
             _LOGGER.info(
                 "%s: no charge needed, leaving the inverter mode as it is",
-                "First calculation since start" if first_calc else "Battery data frozen",
+                "First calculation since start" if first_calc
+                else "Second look after start" if recheck
+                else "Battery data frozen",
             )
             return result
 
@@ -1288,7 +1372,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             else 0.0
         )
 
-        if charge_needed > self.charge_threshold:
+        if wants_charge:
             self._charging_active = True
             self._charge_start_time = now
             self._charge_start_soc = current_soc

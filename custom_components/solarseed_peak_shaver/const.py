@@ -79,6 +79,12 @@ DEFAULT_PACK_CAPACITY_AH = 100.0
 DEFAULT_CAPACITY_V_HIGH = 53.0
 DEFAULT_CAPACITY_V_LOW = 51.5
 
+# Seconds the classic planner waits before acting on the first calculation after a start
+# that wants a charge. Sensors can report a wrong value for a moment while HA loads
+# (2026-11-22: the battery sensor read a numeric 0.0 for 2 s), so the charge is only
+# started by a second look.
+STARTUP_CONFIRM_SECONDS = 60
+
 # --- Sensor keys ---
 SENSOR_TARGET_SOC = "target_soc_kwh"
 SENSOR_CHARGE_NEEDED = "charge_needed_kwh"
