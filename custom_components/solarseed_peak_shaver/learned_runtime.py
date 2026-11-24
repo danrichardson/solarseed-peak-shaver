@@ -673,6 +673,7 @@ class LearnedRuntime:
     def _inputs(self, now: datetime, gauge: float | None) -> PlanInputs:
         c = self.coord
         w = c.windows_on(now.date())        # the hours of today's season
+        w_next = c.windows_on(now.date() + timedelta(days=1))   # tomorrow's, for the night rule
         return PlanInputs(
             now=now,
             gauge=gauge,
@@ -681,6 +682,8 @@ class LearnedRuntime:
             midpeak_start=w.midpeak_start,
             peak_start=w.peak_start,
             peak_end=w.peak_end,
+            next_midpeak_start=w_next.midpeak_start,
+            next_peak_end=w_next.peak_end,
             floor=c.gauge_floor,
             full_months=tuple(c.full_charge_months),
             margin_kwh=c.peak_margin_kwh,

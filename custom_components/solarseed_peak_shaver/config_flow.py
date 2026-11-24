@@ -432,7 +432,7 @@ _FIELDS: dict[str, tuple[Any, Any]] = {
     CONF_MIN_SAFE_SOC: (DEFAULT_MIN_SAFE_SOC, lambda: _number(0.0, 100.0, 0.1, "kWh")),
     CONF_MIDPEAK_START: (DEFAULT_MIDPEAK_START, lambda: _number(0, 23, 1, "hour")),
     CONF_PEAK_START: (DEFAULT_PEAK_START, lambda: _number(0, 23, 1, "hour")),
-    CONF_PEAK_END: (DEFAULT_PEAK_END, lambda: _number(1, 24, 1, "hour")),
+    CONF_PEAK_END: (DEFAULT_PEAK_END, lambda: _number(1, 23, 1, "hour")),   # 24 would score on the next date
     CONF_WEEKDAYS_ONLY: (DEFAULT_WEEKDAYS_ONLY, lambda: selector.BooleanSelector()),
     CONF_OFFPEAK_PRICE: (None, lambda: _price()),
     CONF_MIDPEAK_PRICE: (DEFAULT_MIDPEAK_PRICE, lambda: _price()),

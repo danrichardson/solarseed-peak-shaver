@@ -60,6 +60,7 @@ from .const import (
     DEFAULT_MIDPEAK_START,
     DEFAULT_PEAK_END,
     DEFAULT_PEAK_START,
+    DEFAULT_WEEKDAYS_ONLY,
 )
 from .holidays import (
     HOLIDAY_PRESET_CUSTOM,
@@ -186,6 +187,13 @@ def merge_section(stored: dict[str, Any], user_input: dict[str, Any], section: s
     return merged
 
 
+def _as_bool(value: Any) -> bool:
+    """A stored switch: HA stores a bool, a hand-edited entry may hold text."""
+    if isinstance(value, str):
+        return value.strip().lower() not in ("", "0", "false", "no", "off")
+    return bool(value)
+
+
 def _float_or_none(value: Any) -> float | None:
     if value is None or (isinstance(value, str) and not value.strip()):
         return None
@@ -220,7 +228,9 @@ def check_tariff(previous: dict[str, Any], user_input: dict[str, Any]
                       hour(CONF_PEAK_END, DEFAULT_PEAK_END))
     if mid > peak:
         errors[CONF_PEAK_START] = "invalid_time_range"
-    if peak >= end:
+    # Peak end 24 would put the daily scoring and the peak-end checkpoint at 00:xx on the
+    # next date, after the day's counters reset: never graded. Peak ends by 23:00.
+    if peak >= end or end > 23:
         errors[CONF_PEAK_END] = "invalid_time_range"
     windows = Windows(mid, peak, end)
 
@@ -232,7 +242,12 @@ def check_tariff(previous: dict[str, Any], user_input: dict[str, Any]
         errors[CONF_PEAK_PRICE] = "invalid_prices"
         detail["prices_detail"] = problem
 
-    _, season_errors = parse_seasons(data.get(CONF_TARIFF_SEASONS, ""), prices, windows)
+    seasons, season_errors = parse_seasons(data.get(CONF_TARIFF_SEASONS, ""), prices, windows)
+    weekdays_only = _as_bool(current.get(CONF_WEEKDAYS_ONLY, DEFAULT_WEEKDAYS_ONLY))
+    if weekdays_only and any(not s.months for s in seasons):
+        season_errors.insert(0, "weekend: the windows do not apply on weekends while Weekdays only "
+                                "is on, so the weekend line would never be used; turn Weekdays only off "
+                                "or remove the line")
     if season_errors:
         errors[CONF_TARIFF_SEASONS] = "invalid_seasons"
         detail["seasons_detail"] = "; ".join(season_errors[:2])

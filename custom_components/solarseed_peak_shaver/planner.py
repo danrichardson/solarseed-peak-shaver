@@ -75,6 +75,10 @@ class PlanInputs:
     current_phase: str | None = None    # the phase that command was issued in
     fallback_charge_kw: float = 1.5     # net charge rate assumed before one is learned
     data_stale: bool = False            # the gauge is None because the readings froze
+    # Tomorrow's hours, for the night rule after today's peak end (a season or the weekend
+    # can give tomorrow other hours). None: the same as today's.
+    next_midpeak_start: int | None = None
+    next_peak_end: int | None = None
 
 
 @dataclass
@@ -226,22 +230,29 @@ def decide(inp: PlanInputs, learner: Learner, profile: LoadProfile) -> Decision:
                     % (inp.peak_start, max(remaining - to_peak, 0.0), peak),
                     need_kwh=peak + to_peak, shortfall_kwh=short)
 
-    # 3. The night before a TOU day.
+    # 3. The night before a TOU day. After today's peak end the day planned for is tomorrow,
+    #    so its hours are tomorrow's (a season boundary or the weekend can change them).
     if pre_tou_night:
-        tou_day_month = now.month if h < inp.midpeak_start else _next_day_month(now)
-        solar = inp.solar_today if h < inp.midpeak_start else inp.solar_tomorrow
-        hours_left = _hours_until(h, inp.midpeak_start)
+        for_tomorrow = h >= inp.peak_end
+        tou_day_month = _next_day_month(now) if for_tomorrow else now.month
+        solar = inp.solar_tomorrow if for_tomorrow else inp.solar_today
+        mid_start = inp.midpeak_start
+        end = inp.peak_end
+        if for_tomorrow:
+            mid_start = inp.midpeak_start if inp.next_midpeak_start is None else inp.next_midpeak_start
+            end = inp.peak_end if inp.next_peak_end is None else inp.next_peak_end
+        hours_left = _hours_until(h, mid_start)
         full_month = tou_day_month in inp.full_months
         if full_month or not ready or gauge is None:
             why = ("Full-charge month" if full_month else
                    "Model not trained yet" if not ready else no_gauge)
             if inp.bank_full:
                 return make(MODE_HOLD, "night", "%s: battery is full, holding until %02d:00."
-                            % (why, inp.midpeak_start), target_gauge=100.0)
+                            % (why, mid_start), target_gauge=100.0)
             return make(MODE_CHARGE, "night", "%s: charging until the inverter stops, then holding until %02d:00."
-                        % (why, inp.midpeak_start), target_gauge=100.0)
-        need = window_need(profile, solar, inp.midpeak_start, inp.peak_end, inp.load_quantile,
-                           inp.solar_confidence, window) + inp.margin_kwh
+                        % (why, mid_start), target_gauge=100.0)
+        need = window_need(profile, solar, mid_start, end, inp.load_quantile,
+                           inp.solar_confidence, (mid_start, end)) + inp.margin_kwh
         target = learner.discharge.gauge_for_energy(inp.floor, need)
         if gauge > target + 1.0 and not inp.current_mode == MODE_HOLD:
             return make(MODE_DISCHARGE, "night",
@@ -249,13 +260,13 @@ def decide(inp: PlanInputs, learner: Learner, profile: LoadProfile) -> Decision:
                         % (gauge, target), target_gauge=target, need_kwh=need)
         if gauge >= target - 0.5 or inp.bank_full:
             return make(MODE_HOLD, "night", "At target (%.0f%% for %.1f kWh): holding until %02d:00."
-                        % (target, need, inp.midpeak_start), target_gauge=target, need_kwh=need)
+                        % (target, need, mid_start), target_gauge=target, need_kwh=need)
         lead = learner.grid_charge.hours_between(gauge, target) * 1.15 + 0.25
         if inp.current_mode == MODE_CHARGE or hours_left <= lead:
             return make(MODE_CHARGE, "night", "Charging to %.0f%% (%.1f kWh for tomorrow), timed to end at %02d:00."
-                        % (target, need, inp.midpeak_start), target_gauge=target, need_kwh=need, lead_hours=lead)
+                        % (target, need, mid_start), target_gauge=target, need_kwh=need, lead_hours=lead)
         return make(MODE_HOLD, "night", "Holding. Charge to %.0f%% starts about %.1f h before %02d:00."
-                    % (target, lead, inp.midpeak_start), target_gauge=target, need_kwh=need, lead_hours=lead)
+                    % (target, lead, mid_start), target_gauge=target, need_kwh=need, lead_hours=lead)
 
     # 4. Weekly top-up after the last TOU day of the week.
     if inp.topup_pending and now.month in inp.full_months:

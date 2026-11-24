@@ -48,6 +48,7 @@ from custom_components.solarseed_peak_shaver.tariff import (
 )
 from tests.test_learned_runtime import fired, make_runtime, run
 from tests.test_options import OLD_FLAT_FORM_OPTIONS, coordinator_with, make_select
+from tests.test_planner import trained
 
 # --- 0.9.0, frozen: what the code did before the tariff was data -----------------------------
 # learned_runtime.tick: `c._classify_period(now) if c.is_tou_day(now.date()) else "off-peak"`
@@ -433,3 +434,130 @@ def test_holiday_tou_rule_is_unchanged_for_old_callers():
     assert not is_tou_day(date(2026, 11, 26), True, "pge")
     assert is_tou_day(date(2026, 11, 26), True)
     assert MODE_CHARGE == "charge"
+
+
+# --- review: the night after peak end plans for tomorrow with tomorrow's hours ----------------
+
+LATE_SUMMER = "06-09: mid-peak 9-15, peak 15-20"        # other mid-peak start than the base 7
+
+
+class TestSeasonBoundaryNight:
+    def test_the_last_summer_evening_plans_for_the_first_base_day(self):
+        rt, coord, world = make_runtime(planner="learned", **{CONF_TARIFF_SEASONS: LATE_SUMMER})
+        rt.learner, rt.profile = trained()
+        world.values["sensor.gauge"] = (20, "%")
+        # Tuesday 2026-09-29 evening: tomorrow is still summer, mid-peak from 09:00
+        run(rt, datetime(2026, 9, 29, 20, 30), 2)
+        assert rt.decision.phase == "night" and "09:00" in rt.decision.reason
+        need_summer = rt.decision.need_kwh
+        # Wednesday 2026-09-30 evening: tomorrow is October, mid-peak from 07:00, 07-21
+        run(rt, datetime(2026, 9, 30, 20, 30), 2)
+        assert rt.decision.phase == "night" and "07:00" in rt.decision.reason
+        assert rt.decision.need_kwh > need_summer                    # a longer window needs more
+        # the planner inputs say so too
+        inp = rt._inputs(datetime(2026, 9, 30, 20, 30), 20.0)
+        assert (inp.midpeak_start, inp.peak_end) == (9, 20)          # today's, for today's rules
+        assert (inp.next_midpeak_start, inp.next_peak_end) == (7, 21)
+        # before mid-peak start on the day itself, today's hours rule as before
+        run(rt, datetime(2026, 10, 1, 5, 0), 2)
+        assert rt.decision.phase == "night" and "07:00" in rt.decision.reason
+
+    def test_the_full_month_hold_names_tomorrows_hour(self):
+        rt, coord, world = make_runtime(planner="learned", **{CONF_TARIFF_SEASONS: "10: mid-peak 9-15, peak 15-20",
+                                                              CONF_WEEKDAYS_ONLY: False,
+                                                              CONF_HOLIDAY_PRESET: "none"})
+        world.values["sensor.gauge"] = (100, "%")
+        world.values["sensor.grid"] = (600, "W")
+        run(rt, datetime(2026, 10, 31, 21, 0), 3)                   # Saturday; tomorrow November
+        assert rt.decision.phase == "night" and "until 07:00" in rt.decision.reason
+
+    def test_pge_is_untouched(self):
+        rt, coord, _ = make_runtime(planner="learned")
+        inp = rt._inputs(datetime(2026, 11, 24, 22, 0), 50.0)
+        assert (inp.next_midpeak_start, inp.next_peak_end) == (7, 21) == (inp.midpeak_start, inp.peak_end)
+
+
+# --- review: the weekend's own hours and prices (day types weekday, weekend, holiday) ----------
+
+WEEKEND_LINE = "weekend: peak 16-21 0.30"
+
+
+class TestWeekendOwnHoursAndPrices:
+    def test_parsed_as_a_season_with_no_months(self):
+        seasons, errors = parse_seasons(WEEKEND_LINE, {"off-peak": None, "mid-peak": 0.167, "peak": 0.4313},
+                                        Windows(7, 17, 21))
+        assert errors == []
+        assert seasons[0].name == "weekend" and seasons[0].months == ()
+        assert seasons[0].windows == Windows(16, 16, 21) and seasons[0].prices == (("peak", 0.30),)
+
+    def test_weekend_days_use_their_own_when_the_windows_apply_every_day(self):
+        t = build_tariff(7, 17, 21, False, None, 0.167, 0.4313, WEEKEND_LINE, PGE)
+        sat, fri = date(2026, 11, 21), date(2026, 11, 20)
+        assert t.windows_on(sat) == Windows(16, 16, 21) and t.windows_on(fri) == Windows(7, 17, 21)
+        assert t.prices_on(sat)["peak"] == 0.30 and t.prices_on(fri)["peak"] == 0.4313
+        assert t.prices_on(sat)["mid-peak"] == 0.167                 # not given: the weekday's
+        assert t.period_at(datetime(2026, 11, 21, 12, 0)) == "off-peak"
+        assert t.period_at(datetime(2026, 11, 21, 17, 0)) == "peak"
+        assert t.period_at(datetime(2026, 11, 20, 12, 0)) == "mid-peak"
+        assert t.all_windows() == (Windows(7, 17, 21), Windows(16, 16, 21))
+        assert t.describe(sat)["season"] == "weekend" and t.describe(fri)["season"] is None
+        assert t.describe(sat)["price_windows"] == "16-21 peak"
+        assert not t.is_tou_day(date(2026, 11, 26))                 # a holiday is still off-peak all day
+
+    def test_weekdays_only_leaves_the_weekend_off_peak(self):
+        t = build_tariff(7, 17, 21, True, None, 0.167, 0.4313, WEEKEND_LINE, PGE)
+        assert t.windows_on(date(2026, 11, 21)) == Windows(7, 17, 21)
+        assert t.period_at(datetime(2026, 11, 21, 17, 0)) == "off-peak"
+        assert t.describe(date(2026, 11, 21))["season"] is None
+
+    def test_with_a_season_the_weekend_prices_sit_on_top(self):
+        t = build_tariff(7, 17, 21, False, None, 0.167, 0.4313, SUMMER + "\nweekend: peak 0.30", PGE)
+        sat_july = date(2026, 7, 18)
+        assert t.windows_on(sat_july) == Windows(7, 15, 20)        # the season's hours
+        assert t.prices_on(sat_july) == {"off-peak": None, "mid-peak": 0.20, "peak": 0.30}
+        assert t.describe(sat_july)["season"] == "Summer, weekend"
+
+    @pytest.mark.parametrize("text,words", [
+        ("weekend: peak 16-21; weekend: peak 0.3", "given twice"),
+        ("weekend:", "hours, a price or both"),
+        ("weekend: peak 0.10", "prices must rise"),
+    ])
+    def test_bad_weekend_lines_say_why(self, text, words):
+        _, errors = parse_seasons(text, {"off-peak": None, "mid-peak": 0.167, "peak": 0.4313}, Windows(7, 17, 21))
+        assert errors and words in errors[-1], errors
+
+    def test_the_form_wants_weekdays_only_off(self):
+        _, errors, detail = submit(**{CONF_TARIFF_SEASONS: WEEKEND_LINE, CONF_WEEKDAYS_ONLY: True})
+        assert errors == {CONF_TARIFF_SEASONS: "invalid_seasons"}
+        assert "Weekdays only" in detail["seasons_detail"]
+        data, errors, _ = submit(**{CONF_TARIFF_SEASONS: WEEKEND_LINE, CONF_WEEKDAYS_ONLY: False})
+        assert errors == {} and data[CONF_TARIFF_SEASONS] == WEEKEND_LINE
+
+    def test_through_the_runtime_friday_night_plans_for_saturdays_hours(self):
+        rt, coord, world = make_runtime(planner="learned", **{CONF_TARIFF_SEASONS: WEEKEND_LINE,
+                                                              CONF_WEEKDAYS_ONLY: False,
+                                                              CONF_HOLIDAY_PRESET: "none"})
+        world.values["sensor.gauge"] = (30, "%")
+        run(rt, datetime(2026, 11, 20, 21, 30), 2)                  # Friday night, November
+        assert rt.decision.phase == "night" and "until 16:00" in rt.decision.reason
+        assert fired(coord)[-1] == EVENT_CHARGE_START
+        world.values["sensor.grid"] = (300, "W")
+        run(rt, datetime(2026, 11, 21, 17, 0), 5)                   # Saturday, the weekend's peak
+        assert rt.decision.phase == "peak"
+        assert rt.daily_summary()["grid_kwh"].get("peak", 0) > 0
+        assert "mid-peak" not in rt.daily_summary()["grid_kwh"]
+        record = coord._grade_health("2026-11-21", {"grid_kwh": {"peak": 1.0}})
+        assert record["cost_usd"] == 0.30                           # Saturday's peak price
+        with patch("custom_components.solarseed_peak_shaver.coordinator.async_track_time_change") as track:
+            coord.setup_listeners()
+        ckpt = sorted(c.kwargs["hour"] for c in track.call_args_list if c.args[1] == coord._on_soc_checkpoint)
+        assert ckpt == [7, 16, 17, 21]
+
+
+class TestPeakEndByEleven:
+    def test_peak_end_24_is_refused_in_the_form(self):
+        # 24 would put the scoring and the peak-end checkpoint at 00:xx on the next date
+        _, errors, _ = submit(**{CONF_PEAK_END: 24})
+        assert errors == {CONF_PEAK_END: "invalid_time_range"}
+        _, errors, _ = submit(**{CONF_PEAK_END: 23})
+        assert errors == {}

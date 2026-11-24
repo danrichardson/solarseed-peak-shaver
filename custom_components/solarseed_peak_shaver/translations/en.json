@@ -210,11 +210,11 @@
           "midpeak_start_hour": "When mid-peak rates begin. Set it to the peak start hour if your plan has no mid-peak (two prices only).",
           "peak_start_hour": "When the most expensive rates begin.",
           "peak_end_hour": "When peak rates end and off-peak resumes.",
-          "weekdays_only": "On: the mid-peak and peak windows apply Monday to Friday only, weekends are off-peak all day. Off: every day.",
+          "weekdays_only": "On: the mid-peak and peak windows apply Monday to Friday only, weekends are off-peak all day. Off: every day, weekends with the weekday hours and prices unless a weekend line in Seasons gives their own.",
           "offpeak_price": "Optional, per kWh. Shown on the Learned Plan sensor; the daily cost counts mid-peak and peak only.",
           "midpeak_price": "Per kWh in the mid-peak window. The daily message's dollars use it.",
           "peak_price": "Per kWh in the peak window. It must not be below the mid-peak price: the planner tops up in mid-peak so as not to buy at peak.",
-          "tariff_seasons": "Optional. One season per line: months, a colon, then periods with hours, a price or both, for example: Summer 06-09: mid-peak 7-15, peak 15-20 0.52. Months in no season use the hours and prices above. Hours replace the day's windows (give peak; mid-peak must end where peak starts); a season with prices only keeps the hours above.",
+          "tariff_seasons": "Optional. One season per line: months, a colon, then periods with hours, a price or both, for example: Summer 06-09: mid-peak 7-15, peak 15-20 0.52. Months in no season use the hours and prices above. Hours replace the day's windows (give peak; mid-peak must end where peak starts); a season with prices only keeps the hours above. A line weekend: peak 16-21 0.30 gives weekend days their own hours or prices in every month (Weekdays only must be off).",
           "holiday_preset": "Days your utility prices off-peak all day: no charge the night before for them, no weekly top-up the evening before a mid-week one, nothing graded or learned as a weekday. Choosing a preset fills the rules below with its own when you save; editing the rules makes it Custom. PGE: New Year's Day, Memorial Day, Independence Day, Labor Day, Thanksgiving and Christmas. US federal: the eleven federal holidays. Both move a Saturday holiday to Friday and a Sunday one to Monday. None: no holidays.",
           "holiday_rules": "One rule per line, an optional name after it: 01-01 is a date, 11-thu-4 the fourth Thursday of November, 05-mon-last the last Monday of May; sat->fri, sun->mon moves a date that falls on a weekend.",
           "holiday_dates": "Optional. Single days that are off-peak all day, for example 2026-12-24 Christmas Eve, one per line. Kept whatever the preset."
@@ -299,7 +299,7 @@
     },
     "error": {
       "invalid_voltage_range": "The lower voltage must be below the upper voltage.",
-      "invalid_time_range": "Rate periods must be in order: mid-peak start, then peak start (the same hour means no mid-peak), then peak end.",
+      "invalid_time_range": "Rate periods must be in order: mid-peak start, then peak start (the same hour means no mid-peak), then peak end (by 23:00).",
       "invalid_prices": "This tariff does not fit: {prices_detail}.",
       "invalid_seasons": "This tariff does not fit: {seasons_detail}.",
       "invalid_holiday_rules": "Holiday rules: {rules_detail}.",

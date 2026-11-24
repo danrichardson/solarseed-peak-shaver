@@ -387,7 +387,8 @@ ungraded. The record survives a restart, including one over midnight. At most 14
   every earlier version, kept as the base hours. Mid-peak start equal to peak start means
   no mid-peak window: a two-price plan (off-peak and peak);
 - day types: on a weekday the windows apply; on a weekend they apply only when
-  weekdays-only is off; a holiday is off-peak all day (`holidays.day_type`);
+  weekdays-only is off, with the weekend's own hours and prices when a `weekend:` line
+  gives them (else the weekday's); a holiday is off-peak all day (`holidays.day_type`);
 - optional seasons: for some months, other hours, other prices, or both. A season never
   changes the planner's rules, only the hours and prices it works with;
 - the holiday calendar.
@@ -405,16 +406,20 @@ holidays (`holiday_dates`). Seasons are typed one per line, a name optional:
 `Summer 06-09: mid-peak 7-15, peak 15-20 0.52, mid-peak 0.20`. Months are one month or a
 range (`11-02` wraps the year); each item is a period with hours, a price, or both; hours
 replace the day's windows (peak must be given, mid-peak must end where peak starts); a
-season with prices only keeps the base hours.
+season with prices only keeps the base hours. A line `weekend: peak 16-21 0.30` (the same
+items, no months) gives weekend days their own hours and/or prices in every month, on top
+of the season's; it needs weekdays-only off, and the form says so otherwise. Peak ends by
+23:00: a peak ending at midnight would put the daily scoring and the peak-end checkpoint
+at 00:xx on the next date, after the day's counters reset.
 
 **Refused, not half-supported.** A tariff that does not fit the planner's cheap, middle,
 dear day is refused in the form with the reason: two peak (or mid-peak) windows in a day, a
 gap between mid-peak and peak or mid-peak after peak, a window across midnight, hours for
 off-peak, a month in two seasons, and prices that do not rise from off-peak to mid-peak to
 peak (the planner's rule that any predicted peak shortfall is worth a mid-peak top-up relies
-on it; the mid-peak price does not count when there is no mid-peak window). Weekend hours
-unlike the weekday's cannot be typed. A season that no longer parses in a hand-edited entry
-is left out (its months use the base), never half-applied.
+on it; the mid-peak price does not count when there is no mid-peak window), a weekend line
+with weekdays-only on, and a peak end of 24. A season that no longer parses in a hand-edited
+entry is left out (its months use the base), never half-applied.
 
 **Holidays as typed rules.** `holiday_preset` now has four values: `none`, `pge` (the
 default, also when absent), `us_federal` (the eleven federal holidays) and `custom`. The
@@ -435,9 +440,12 @@ period, the handover record, the gauge checkpoints, the weekly top-up); the clas
 and the sensors use today's. The timers (SOC checkpoints, solar sampling, off-peak hold,
 daily scoring) are set for the hours of every season and act only on the day's own, so a
 season change needs no restart; a saved change to a season's hours reloads the entry
-(`tariff_seasons` is in `RELOAD_KEYS`, compared by hours only). After peak end, the night
-before a TOU day is planned with today's hours: on the one night a season changes, the
-first plan uses the old mid-peak start until midnight, when the new day's hours apply.
+(`tariff_seasons` is in `RELOAD_KEYS`, compared by hours only). After today's peak end the
+night rule plans for tomorrow with tomorrow's hours (`PlanInputs.next_midpeak_start`,
+`next_peak_end`): the night a season changes, and every Friday night when the weekend has
+its own hours, the charge is sized for tomorrow's window and timed to end at tomorrow's
+mid-peak start. Today's own rules (peak, mid-peak) keep today's hours. The classic planner
+still uses today's hours for its overnight projection (legacy, PGE has one set).
 
 **Dollars from the tariff.** The health record's `cost_usd` is the day's mid-peak and peak
 grid energy at that day's prices (its season's), with the prices used in a new `prices`

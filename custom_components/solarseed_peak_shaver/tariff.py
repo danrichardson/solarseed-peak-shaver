@@ -8,7 +8,8 @@ Pure Python, no Home Assistant imports. A tariff here is:
   peak; off-peak is every other hour. Mid-peak start equal to peak start means there is
   no mid-peak window (a two-price plan);
 - day types: on a weekday the windows apply; on a weekend they apply only when the plan
-  is not weekdays-only; a holiday is off-peak all day;
+  is not weekdays-only, with the weekend's own hours and/or prices when a `weekend:` line
+  gives them (else the weekday's); a holiday is off-peak all day;
 - optional seasons: by month, other hours and/or other prices. A season never changes the
   planner's rules, only the hours and the prices it works with;
 - the holiday calendar (`holidays.py`).
@@ -30,12 +31,15 @@ from functools import lru_cache
 from typing import Any
 
 from .const import DEFAULT_MIDPEAK_PRICE, DEFAULT_PEAK_PRICE
-from .holidays import PGE, HolidayCalendar, day_type, is_tou_day
+from .holidays import DAY_WEEKEND, PGE, HolidayCalendar, day_type, is_tou_day
 
 PERIOD_OFFPEAK = "off-peak"
 PERIOD_MIDPEAK = "mid-peak"
 PERIOD_PEAK = "peak"
 PERIODS = (PERIOD_OFFPEAK, PERIOD_MIDPEAK, PERIOD_PEAK)     # cheap, middle, dear
+
+# The weekend's own hours and prices are typed as a season named this, with no months.
+WEEKEND = "weekend"
 
 # PGE Time of Day, USD per kWh, as 0.8.1 to 0.9.0 had them in health.py (one source: the
 # option defaults). Off-peak was never priced (the daily cost counts mid-peak and peak only),
@@ -83,7 +87,7 @@ class Windows:
 @dataclass(frozen=True)
 class Season:
     name: str
-    months: tuple[int, ...]
+    months: tuple[int, ...]                             # empty: the weekend's own, every month
     windows: Windows | None = None                      # None: the base hours
     prices: tuple[tuple[str, float], ...] = ()          # only the prices it changes
 
@@ -103,8 +107,26 @@ class Tariff:
                 return s
         return None
 
+    @property
+    def weekend(self) -> Season | None:
+        """The weekend's own hours and/or prices (the `weekend:` line), if typed."""
+        for s in self.seasons:
+            if not s.months:
+                return s
+        return None
+
+    def _weekend_on(self, d: date) -> Season | None:
+        we = self.weekend
+        if we is not None and not self.weekdays_only and self.day_type(d) == DAY_WEEKEND:
+            return we
+        return None
+
     def windows_on(self, d: date) -> Windows:
-        """The hours on `d`'s TOU days (its season's, else the base)."""
+        """The hours on `d`'s TOU days: the weekend's own on a weekend day with one, else
+        its season's, else the base."""
+        we = self._weekend_on(d)
+        if we is not None and we.windows is not None:
+            return we.windows
         s = self.season_on(d)
         return s.windows if s is not None and s.windows is not None else self.windows
 
@@ -113,6 +135,9 @@ class Tariff:
         s = self.season_on(d)
         if s is not None:
             out.update(dict(s.prices))
+        we = self._weekend_on(d)
+        if we is not None:
+            out.update(dict(we.prices))
         return {p: out.get(p) for p in PERIODS}
 
     def day_type(self, d: date) -> str:
@@ -138,9 +163,12 @@ class Tariff:
     def describe(self, d: date) -> dict[str, Any]:
         """What applies on `d`, for the plan sensor and diagnostics."""
         s = self.season_on(d)
+        season = s.name if s is not None else None
+        if self._weekend_on(d) is not None:
+            season = WEEKEND if season is None else "%s, %s" % (season, WEEKEND)
         return {
             "tariff": self.name,
-            "season": s.name if s is not None else None,
+            "season": season,
             "day_type": self.day_type(d),
             "price_windows": self.windows_on(d).text() if self.is_tou_day(d) else "off-peak all day",
             "prices": self.prices_on(d),
@@ -181,6 +209,7 @@ def price_problem(prices: dict[str, float | None], has_midpeak: bool = True) -> 
 
 _SEASON = re.compile(r"^(?:(?P<name>[A-Za-z][A-Za-z0-9 ]*?)\s+)?(?P<m1>\d{1,2})(?:\s*-\s*(?P<m2>\d{1,2}))?"
                      r"\s*:\s*(?P<items>.*)$")
+_WEEKEND_LINE = re.compile(r"^weekend\s*:\s*(?P<items>.*)$", re.IGNORECASE)
 _ITEM = re.compile(r"^(?P<period>off-peak|mid-peak|peak)"
                    r"(?:\s+(?P<h1>\d{1,2})\s*-\s*(?P<h2>\d{1,2}))?"
                    r"(?:\s+\$?(?P<price>\d+(?:\.\d+)?|\.\d+))?$", re.IGNORECASE)
@@ -205,8 +234,11 @@ def parse_seasons(text: str | None, base_prices: dict[str, float | None] | None 
     A name is optional; months are one month or a range (`11-02` wraps the year). Each item
     is a period with hours, a price, or both. Hours replace the day's windows: give peak,
     and mid-peak only if there is one; it must end where peak starts. A season with prices
-    only keeps the base hours. Returns the seasons understood and a plain message for each
-    problem; a season with a problem is left out, so a stored bad line keeps the base.
+    only keeps the base hours. A line `weekend: peak 16-21 0.30` gives weekend days their
+    own hours and/or prices in every month (a season with no months); it applies only when
+    the windows apply on weekends (weekdays-only off). Returns the seasons understood and
+    a plain message for each problem; a season with a problem is left out, so a stored bad
+    line keeps the base.
     """
     seasons: list[Season] = []
     errors: list[str] = []
@@ -216,25 +248,34 @@ def parse_seasons(text: str | None, base_prices: dict[str, float | None] | None 
         line = raw.strip()
         if not line:
             continue
-        m = _SEASON.match(line)
-        if not m:
-            errors.append("%s: start with the months and a colon, like 06-09: peak 15-20 0.50" % line)
-            continue
-        m1, m2 = int(m.group("m1")), None if m.group("m2") is None else int(m.group("m2"))
-        label = m.group("m1") + ("-" + m.group("m2") if m2 is not None else "")
-        name = (m.group("name") or "").strip() or label
-        if not 1 <= m1 <= 12 or (m2 is not None and not 1 <= m2 <= 12):
-            errors.append("%s: months are 01 to 12" % label)
-            continue
-        months = _months(m1, m2)
-        clash = [mo for mo in months if mo in taken]
-        if clash:
-            errors.append("%s: month %02d is already in %s" % (name, clash[0], taken[clash[0]]))
-            continue
+        wm = _WEEKEND_LINE.match(line)
+        if wm:
+            if any(not s.months for s in seasons):
+                errors.append("%s: the weekend is given twice" % WEEKEND)
+                continue
+            name, months, items_text = WEEKEND, (), wm.group("items")
+        else:
+            m = _SEASON.match(line)
+            if not m:
+                errors.append("%s: start with the months and a colon, like 06-09: peak 15-20 0.50, "
+                              "or weekend:" % line)
+                continue
+            m1, m2 = int(m.group("m1")), None if m.group("m2") is None else int(m.group("m2"))
+            label = m.group("m1") + ("-" + m.group("m2") if m2 is not None else "")
+            name = (m.group("name") or "").strip() or label
+            if not 1 <= m1 <= 12 or (m2 is not None and not 1 <= m2 <= 12):
+                errors.append("%s: months are 01 to 12" % label)
+                continue
+            months = _months(m1, m2)
+            clash = [mo for mo in months if mo in taken]
+            if clash:
+                errors.append("%s: month %02d is already in %s" % (name, clash[0], taken[clash[0]]))
+                continue
+            items_text = m.group("items")
         hours: dict[str, tuple[int, int]] = {}
         prices: dict[str, float] = {}
         bad = None
-        for item in [i.strip() for i in m.group("items").split(",") if i.strip()]:
+        for item in [i.strip() for i in items_text.split(",") if i.strip()]:
             im = _ITEM.match(item)
             if not im:
                 bad = ("%s: '%s' is not understood; write a period (off-peak, mid-peak, peak) with "
@@ -276,6 +317,8 @@ def parse_seasons(text: str | None, base_prices: dict[str, float | None] | None 
             peak = hours[PERIOD_PEAK]
             mid = hours.get(PERIOD_MIDPEAK)
             windows = Windows(mid[0] if mid else peak[0], peak[0], peak[1])
+        if bad is None and not hours and not prices:
+            bad = "%s: give a period with hours, a price or both" % name
         if bad is None:
             effective = {**base_prices, **prices}
             w = windows or base_windows
