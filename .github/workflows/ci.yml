@@ -22,7 +22,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install test dependencies
-        run: pip install pytest pytest-asyncio pyyaml
+        run: pip install pytest pytest-asyncio pyyaml voluptuous
 
       - name: Validate JSON files
         run: |
@@ -50,6 +50,9 @@ jobs:
           python -m py_compile custom_components/solarseed_peak_shaver/coordinator.py
           python -m py_compile custom_components/solarseed_peak_shaver/sensor.py
           python -m py_compile custom_components/solarseed_peak_shaver/config_flow.py
+          python -m py_compile custom_components/solarseed_peak_shaver/options.py
+          python -m py_compile custom_components/solarseed_peak_shaver/select.py
+          python -m py_compile custom_components/solarseed_peak_shaver/number.py
           python -m py_compile custom_components/solarseed_peak_shaver/store.py
           python -m py_compile custom_components/solarseed_peak_shaver/button.py
           python -m py_compile custom_components/solarseed_peak_shaver/diagnostics.py
