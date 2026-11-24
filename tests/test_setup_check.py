@@ -126,6 +126,17 @@ def test_no_listener_counts_means_no_guess():
     assert find_problems(coord(**LEARNED), states(), None) == {}
 
 
+def test_a_listen_to_everything_subscriber_is_not_an_automation_for_these_events():
+    # The bus counts a match-all listener (the recorder, the logbook, an "all events"
+    # websocket subscription) under "*", never under the event; a count there says nothing
+    # about whether the inverter will move, so the events still go unheard.
+    found = find_problems(coord(**LEARNED), states(), {"*": 4, EVENT_CHARGE_START: 1})
+    assert found == {ISSUE_NO_AUTOMATIONS: {"events": f"- {EVENT_CHARGE_STOP}\n- {EVENT_PRESERVE_START}"}}
+    # and the count is the number of listeners, so a disabled automation (0) is unheard too
+    assert find_problems(coord(**LEARNED), states(), {**ALL_EVENTS, EVENT_CHARGE_STOP: 0}) == {
+        ISSUE_NO_AUTOMATIONS: {"events": f"- {EVENT_CHARGE_STOP}"}}
+
+
 def test_classic_without_its_hold_needs_only_start_and_stop():
     assert events_needed(coord(**{CONF_SEASONAL_PRESERVATION: False})) == (EVENT_CHARGE_START, EVENT_CHARGE_STOP)
     assert len(events_needed(coord(**{**LEARNED, CONF_SEASONAL_PRESERVATION: False}))) == 3

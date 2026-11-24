@@ -179,3 +179,11 @@ One line per review, newest last.
   so the section showed on every install without packs. For a frontend rule, read the
   frontend source (`validate-condition.ts`, the card's `.ts`), not memory of the docs; and
   an `or 0` in a template is the same 0-for-unknown bug as in a sensor.
+- 2026-11-24 (P5): a call into Home Assistant written from memory is a claim too. The
+  builder could not read core on this machine; the files were fetched from
+  `raw.githubusercontent.com/home-assistant/core/<dev and the min_version tag>/...` and the
+  issue-registry signature, the blueprint schema and the importer's URL rule were checked
+  in minutes (the old `source_url` would have failed that rule). For any `hass.*`, `ir.*`
+  or blueprint key a chunk adds, read that file at the claimed minimum version. And keep a
+  check's claim to what it measures: a listener count says an automation hears the event,
+  not that the inverter moves.

@@ -1,11 +1,12 @@
 # Solarseed Peak Shaver roadmap: one chunk at a time, to 1.0
 
-**Next, paste this** (P5 built 2026-11-24 on `chunk-P5`, 0.9.3, to be reviewed; 0.9.1 to
-0.9.3 can ship together when Dan says so. 0.9.0 still has to be on the box before Wednesday
-11-25 evening for Thanksgiving):
+**Next, paste this** (P5 reviewed 2026-11-24, go, on `chunk-P5` at its `P5 review:` commit;
+0.9.1 to 0.9.3 ship together as 0.9.3 when Dan says so, and that one install also puts the
+holidays on the box before Wednesday 11-25 evening for Thanksgiving. P6 waits for Dan's
+word and a data review on 0.9.x; the live checks it owes are listed under P6):
 
 ```
-review the last chunk per REVIEW.md
+ship 0.9.3
 ```
 
 That sentence and this path are all an agent gets. The other half is [REVIEW.md](REVIEW.md).
@@ -386,6 +387,21 @@ is rewritten in present tense from the code, not as layers of additions; `HACS.m
 `hacs.json` and the manifest meet the HACS default-repository checks; the changelog covers
 0.7 to 1.0; no household detail anywhere in the tracked tree (search for it); version 1.0.0.
 
+**From the P5 review** (nothing in 0.9.3 has been seen in a Home Assistant UI; these are
+owed, read-only unless Dan says otherwise, before or with 1.0): on the box, `/api/events`
+lists the three `solarseed_peak_shaver_*` events with a listener count of at least 1 and
+Settings, System, Repairs is empty ten minutes after the 0.9.3 restart; the four first-time
+screens seen once on a scratch entry (the optional off-peak price box, a refused tariff with
+its `{prices_detail}` text, load without grid refused), then the entry deleted; one blueprint
+imported from its README URL; a repair issue's text with its `- ` lines rendered (make one by
+typing a wrong sensor in Battery and sensors, then put it back); the P4 dashboard paste
+list. HACS and hassfest: the `issues` and `config.step.learned` strings pass hassfest only in
+CI so far; check the default-repository rules against `hacs.json` (2024.11.0) and the
+README. History: the three removed download markers were one blob naming a Windows user
+folder in a download path, and it stays in the public history; "no household detail
+anywhere" is a decision from Dan on a rewrite, not a search of the tree. The README still
+opens with the classic planner's "How it works"; the learned planner goes first.
+
 **Dan should look at:** the README top to bottom as a stranger would.
 
 ### P7. Refill
@@ -748,3 +764,43 @@ then the reviewer's `Review:` line.
   the entry's planner `learned`, then delete it (its issues go with it). (3) Import one
   blueprint from its README URL on a scratch HA, or at least read the three descriptions.
   (4) The README's "What you need" and setup sections as a stranger would.
+  Review (2026-11-24, go after a small fix, made): checked 2851170 and 28f38d7 against
+  2e1eaa8. Read `setup_check.py`, `config_flow.py`, the three blueprints, both string files
+  and the three new test files whole, and the diffs of `__init__.py`, the coordinator,
+  diagnostics, the README and how-it-works. 694 passed, 9 skipped; 754 with
+  `analysis/p2_pydeps`, none skipped; strings.json equals en.json byte for byte; `const.py`
+  and `manifest.json` say 0.9.3; the diff adds no non-ASCII line (the three deleted
+  filenames carry one private-use character from before); `p4_replay_compare.py` identical,
+  45 lines, 83 events, and no runtime or planner file is in the diff. Checked against the
+  core source the coordinator fetched (2024.11.0 and dev), not memory: `async_create_issue`
+  takes exactly the keywords used, deleting an absent issue is no error, both run under
+  `verify_event_loop_thread` (the check is a `@callback` on an interval timer, so on the
+  loop), a non-persistent issue is loaded inactive after a restart and the first run
+  re-creates or deletes it; the blueprint schema allows exactly `homeassistant: min_version`
+  as `major.minor.patch` under `blueprint:`, and the importer turns
+  `github.com/<repo>/blob/<path>` into the raw URL and rejects anything else, so the file
+  URLs import and the old repository-root `source_url` would not have. The forecast
+  attributes the check wants are the four `_get_hourly_solar` reads. Walked: an entry with
+  no planner key reads classic; load without grid refused; an all-empty second screen
+  writes classic and no sensor keys; peak end 24, 17-17 and mid after peak refused, two
+  prices accepted; every optional field's "empty" text against the code (notify entity
+  empty sends nothing whatever the switch says; calculation hours empty is an empty list;
+  PV empty counts 0 and flags no gap; gauge empty derives from kWh over capacity; tomorrow
+  empty guesses, then today's). A fresh learned install lands on the untrained path the
+  planner already had: the night rule charges to full and the first tick never releases a
+  hold or stops a charge. A registered entity whose integration failed to load has a
+  restored `unavailable` state, so only a typo or a renamed entity reads "does not exist".
+  Changed (one commit, `P5 review:`): a test that a match-all bus listener and a zero count
+  leave the events unheard (the module already did this); roadmap and lesson. Not verified:
+  anything in a Home Assistant UI (the four screens, the optional number field, error
+  placeholders, the repair dialog's markdown, a real blueprint import, the dashboard
+  paste); hassfest on the new strings (CI only); the owner's listener counts (no token);
+  that the automation event trigger registers one `async_listen` per event type (from
+  memory of core, not re-read here). Noted, not blockers: when the bus counts cannot be
+  read an open `no_automations` issue is dropped as resolved (the call is a dict
+  comprehension and does not fail in practice); an integration reload that removes its
+  entities for a moment can raise a missing-sensor issue for ten minutes and then clear it,
+  one WARNING and one INFO; the removed download markers named a Windows user folder and
+  stay in the public history (P6). 0.9.3 can ship with 0.9.1 and 0.9.2 as one release when
+  Dan says; nothing in it moves the inverter differently, and the only new thing that runs
+  by itself writes a repair issue and a log line.
