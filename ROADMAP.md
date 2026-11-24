@@ -1,9 +1,11 @@
 # Solarseed Peak Shaver roadmap: one chunk at a time, to 1.0
 
-**Next, paste this** (review session, the strongest model):
+**Next, paste this** (P2 reviewed go on 2026-11-24; 0.9.0 carries P1 and P2 and should be
+on the box before Wednesday 11-25 evening for Thanksgiving; then the build sentence for P3,
+`work on the next chunk in ROADMAP.md`):
 
 ```
-review the last chunk per REVIEW.md
+ship 0.9.0
 ```
 
 That sentence and this path are all an agent gets. The other half is [REVIEW.md](REVIEW.md).
@@ -282,7 +284,15 @@ hours are three options; seasons do not exist.
 **Where to start:** `docs/ROADMAP.md` items 7 and 8; `health.py` `PRICE_*`;
 `coordinator._classify_period`; the planner's three-window model in `planner.py`. Since
 0.9.0 the options are a menu: a tariff section is a new entry in `options.SECTIONS`, and any
-tariff key the timers read at start belongs in `RELOAD_KEYS` and `setup_signature`.
+tariff key the timers read at start belongs in `RELOAD_KEYS` and `setup_signature`. A new
+`CONF_*` key needs, in this order or the tests say so: a section in `options.SECTIONS`, a
+field in `config_flow._FIELDS`, a label in both string files under `options.step.<section>`,
+and `CLEARED_VALUE` if it is optional. A new holiday preset appears in the device-page select
+by itself (`select.SELECTS` reads `HOLIDAY_PRESETS`) but needs its name under both
+`entity.select.holiday_preset.state` and `selector.holiday_preset.options` in the strings.
+Prices and periods are read on every tick (`_classify_period`, `health.py`), so only the
+timers' hours need a reload; test a changed tariff with `async_options_updated` as
+`tests/test_options.py` does.
 
 **Defaults:** keep the planner's shape of three windows (cheap, middle, dear) and map a
 tariff onto it; a tariff that does not fit that shape (two dear windows a day, say) is
@@ -450,3 +460,20 @@ then the reviewer's `Review:` line.
   Planner there should log "Option planner set to ... from the device page" and no reload;
   the first daily messages after install, since any real evening "not followed" now shows
   in the next weekday's grade.
+  Review (2026-11-24, go): checked 95761f0 and 1d30455 against e8330c2. Read the diff whole,
+  `options.py`, `select.py`, `number.py`, `config_flow.py`, the runtime's late-event code and
+  the three new test files. 530 passed, 1 skipped; 556 with voluptuous on the path; diff is
+  ASCII; `const.py` and `manifest.json` agree; strings.json equals en.json; `weekday()` only
+  in `holidays.py`; shadow replay (learned in control) gives the same 83 events and decisions
+  as P1. Walked: every setting the timers and state listeners capture at start is in
+  `RELOAD_KEYS` (hours, calculation hours, hold switch, battery/forecast/production sensors,
+  packs); the six device-page settings and the power sensors are read each tick; an 0.8.x
+  flat-form options dict reads unchanged; a Friday 23:00 ignored command is carried to
+  Monday, graded Poor once, then cleared; a weekend or holiday carries nothing because the
+  scoring does not run; a scoring that grades nothing keeps the list; a restart over midnight
+  keeps it. Changed: CI now installs voluptuous, so `test_config_flow.py` runs there instead
+  of skipping (it had skipped silently since 0.8.1), and compiles the three new modules
+  (5847319). Not verified: the HA UI (menu, device page) and hassfest on the new `entity`
+  strings; no box token. Noted, not blockers: the Battery section does not check that a
+  typed sensor exists (setup does); a late frozen stretch is capped at the minutes since the
+  scoring, so a stretch spanning 21:10 is under-reported, never over.

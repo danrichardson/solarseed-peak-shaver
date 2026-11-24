@@ -165,4 +165,7 @@ answer.
 
 One line per review, newest last.
 
-- (none yet)
+- 2026-11-24 (P2): a "skipped" in the pytest line is a question. `test_config_flow.py` had
+  skipped in CI since 0.8.1 for a missing package; the chunk that rewrote the options flow
+  would have shipped with its form tests never run there. Run the suite with the extra
+  package (`analysis/p2_pydeps`) and read the skip count, not just the pass count.
