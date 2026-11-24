@@ -328,7 +328,10 @@ class PeakShaverConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class PeakShaverOptionsFlow(config_entries.OptionsFlow):
-    """Options, as a menu of sections (0.9.0). Each section saves only its own fields."""
+    """Options, as a menu of sections (0.9.0). Each section saves only its own fields.
+
+    Reads `self.config_entry`, which the plain `OptionsFlow` provides from Home Assistant
+    2024.12.0 (2024.11 had it only on `OptionsFlowWithConfigEntry`); `hacs.json` says so."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None

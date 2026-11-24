@@ -396,7 +396,7 @@ its `{prices_detail}` text, load without grid refused), then the entry deleted; 
 imported from its README URL; a repair issue's text with its `- ` lines rendered (make one by
 typing a wrong sensor in Battery and sensors, then put it back); the P4 dashboard paste
 list. HACS and hassfest: the `issues` and `config.step.learned` strings pass hassfest only in
-CI so far; check the default-repository rules against `hacs.json` (2024.11.0) and the
+CI so far; check the default-repository rules against `hacs.json` (2024.12.0) and the
 README. History: the three removed download markers were one blob naming a Windows user
 folder in a download path, and it stays in the public history; "no household detail
 anywhere" is a decision from Dan on a rewrite, not a search of the tree. The README still
@@ -804,3 +804,14 @@ then the reviewer's `Review:` line.
   stay in the public history (P6). 0.9.3 can ship with 0.9.1 and 0.9.2 as one release when
   Dan says; nothing in it moves the inverter differently, and the only new thing that runs
   by itself writes a repair issue and a log line.
+  Review correction (2026-11-24, same session, second commit `P5 review:`): the minimum
+  Home Assistant version was wrong, and I had passed it. `PeakShaverOptionsFlow` subclasses
+  the plain `OptionsFlow` and reads `self.config_entry`; in core 2024.11.0 only
+  `OptionsFlowWithConfigEntry` has that property, the plain class gains it in 2024.12.0
+  (`homeassistant/config_entries.py` at both tags, fetched by the coordinator), so on
+  2024.11 the settings menu fails to open. The suite could not see it: the mock
+  `OptionsFlow` is an empty class and every flow test sets `config_entry` by hand. Fixed:
+  `hacs.json`, the README and how-it-works say 2024.12.0, a comment on the class says why,
+  and `test_integration_structure.py` holds the minimum at 2024.12.0 or later. The P2 Log's
+  "2024.11+" and this chunk's "2024.11.0" above are the record of the mistake. The
+  blueprints' own `min_version` 2024.8.0 stands (the `action:` key). Verdict unchanged: go.

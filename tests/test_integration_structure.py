@@ -144,6 +144,16 @@ class TestHACS:
         assert "name" in hacs
         assert len(hacs["name"]) > 0
 
+    def test_hacs_minimum_home_assistant_covers_the_options_flow(self):
+        # PeakShaverOptionsFlow subclasses the plain OptionsFlow and reads self.config_entry,
+        # which that class provides from core 2024.12.0 (2024.11.0 had it only on
+        # OptionsFlowWithConfigEntry). The mocks set config_entry by hand, so only this
+        # number says what a real install needs. Raise it when something newer is used.
+        hacs = self._load_hacs()
+        parts = tuple(int(p) for p in hacs["homeassistant"].split("."))
+        assert len(parts) == 3
+        assert parts >= (2024, 12, 0)
+
     def test_hacs_render_readme(self):
         hacs = self._load_hacs()
         assert hacs.get("render_readme") is True

@@ -612,8 +612,12 @@ depending on the time-control windows set in the Bluetti app). `tests/test_bluep
 checks the structure, every `!input`, the event names, the URLs against the README, and
 ASCII. The three tracked `*:Zone.Identifier` download markers are gone.
 
-**Install requirements.** `hacs.json` asks for Home Assistant 2024.11.0 (the options flow
-relies on `OptionsFlow.config_entry` being set by Home Assistant, 2024.11; it said 2024.1.0).
+**Install requirements.** `hacs.json` asks for Home Assistant 2024.12.0 (it said 2024.1.0).
+`PeakShaverOptionsFlow` subclasses the plain `OptionsFlow` and reads `self.config_entry`;
+in core 2024.11.0 only `OptionsFlowWithConfigEntry` has that property, and the plain class
+gains it in 2024.12.0 (`homeassistant/config_entries.py` at those tags), so on 2024.11 the
+settings menu would fail to open. The test mocks set `config_entry` by hand, which is why
+the suite cannot see this; `tests/test_integration_structure.py` now holds the minimum.
 The README's "What you need" says so, and that the forecast must be Solcast's, that a
 two-price plan holds on grid all day before peak start (never yet watched on an inverter),
 and that `tools/analyze_performance.py` prices with its own fixed rates.

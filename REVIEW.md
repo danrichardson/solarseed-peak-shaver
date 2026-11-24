@@ -184,6 +184,9 @@ One line per review, newest last.
   `raw.githubusercontent.com/home-assistant/core/<dev and the min_version tag>/...` and the
   issue-registry signature, the blueprint schema and the importer's URL rule were checked
   in minutes (the old `source_url` would have failed that rule). For any `hass.*`, `ir.*`
-  or blueprint key a chunk adds, read that file at the claimed minimum version. And keep a
-  check's claim to what it measures: a listener count says an automation hears the event,
-  not that the inverter moves.
+  or blueprint key a chunk adds, read that file at the claimed minimum version. The same
+  review passed `hacs.json` 2024.11.0 on the builder's word; the plain `OptionsFlow` gets
+  `config_entry` only in 2024.12.0, and the mocks set it by hand, so no test could say so.
+  A version number in `hacs.json` is a claim about every HA attribute the code touches:
+  list them and read the tag. And keep a check's claim to what it measures: a listener
+  count says an automation hears the event, not that the inverter moves.
