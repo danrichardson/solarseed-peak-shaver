@@ -1,0 +1,229 @@
+# Solarseed Peak Shaver dashboard (0.9.2)
+#
+# Stock Home Assistant cards only: a sections view with heading, markdown, tile, gauge,
+# history-graph, statistics-graph, conditional and vertical-stack cards. Needs Home
+# Assistant 2024.10 or later and the integration at 0.9.2 or later (the Plan Summary and
+# Peak End Forecast sensors).
+#
+# To use it: Settings > Dashboards > Add dashboard > New dashboard from scratch. Open it,
+# then the pencil (Edit dashboard) > three dots > Raw configuration editor, replace
+# everything with this file and save.
+#
+# The entity ids are set once, here at the top. Edit them before pasting: the &name and
+# *name marks are YAML anchors, and Home Assistant copies each id into the cards that use
+# it when it saves. The markdown cards read the whole list as `config.ids`.
+#
+# The integration's own ids below are its defaults (a device named Solarseed Peak
+# Shaver). Two are yours to set:
+#   gauge  your battery percent sensor, the one chosen as the battery gauge in the
+#          integration's Battery and sensors settings (this one is a Bluetti AC500's);
+#   packs  only if you track third-party packs: their "Ah Between ..." sensors from the
+#          device page. With none configured the pack section stays hidden.
+solarseed_ids: &ids
+  plan: &plan sensor.solarseed_peak_shaver_learned_plan
+  summary: &summary sensor.solarseed_peak_shaver_plan_summary
+  forecast: &forecast sensor.solarseed_peak_shaver_peak_end_forecast
+  energy: &energy sensor.solarseed_peak_shaver_learned_energy_remaining
+  health: &health sensor.solarseed_peak_shaver_health
+  planner: &planner select.solarseed_peak_shaver_planner
+  gauge: &gauge sensor.ac500_total_battery_percent
+  packs: &packs
+    - &pack1 sensor.solarseed_peak_shaver_pack_1_ah_between_53_0_and_51_5_v
+
+title: Solarseed
+views:
+  - title: Peak Shaver
+    path: solarseed
+    icon: mdi:solar-power-variant
+    type: sections
+    max_columns: 3
+    sections:
+      # 1. What is it doing now, and why
+      - type: grid
+        cards:
+          - type: heading
+            heading: Now
+            icon: mdi:head-cog-outline
+          - type: markdown
+            ids: *ids
+            content: |-
+              {%- set ids = config.ids -%}
+              {%- set mode = states(ids.plan) -%}
+              {%- set summary = states(ids.summary) -%}
+              {%- if mode in ['unknown', 'unavailable'] -%}
+              The learned planner has not decided anything yet. It decides once a minute while Home Assistant runs.
+              {%- else -%}
+              {%- set price = state_attr(ids.plan, 'price_now') -%}
+              {%- set season = state_attr(ids.plan, 'season') -%}
+              **{{ summary if summary not in ['unknown', 'unavailable'] else 'No plan sentence yet.' }}**
+
+              Right now: {{ state_attr(ids.plan, 'reason') }}
+              {%- if state_attr(ids.plan, 'battery_data_stale') %}
+
+              Battery readings are frozen, so the planner treats the gauge as missing.
+              {%- endif %}
+
+              <small>Price now: {{ state_attr(ids.plan, 'price_period') }}{% if price is number %} at ${{ '%.4f' | format(price) }}/kWh{% endif %}, {{ state_attr(ids.plan, 'tariff') }}{% if season %} ({{ season }}){% endif %}. In control: the {{ state_attr(ids.plan, 'planner_in_control') }} planner.</small>
+              {%- endif %}
+          - type: tile
+            entity: *plan
+            name: Inverter mode asked for
+          - type: tile
+            entity: *planner
+            name: Planner
+
+      # 2. Will the next peak be covered
+      - type: grid
+        cards:
+          - type: heading
+            heading: The next peak
+            icon: mdi:battery-clock
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: *forecast
+                state_not: unknown
+              - condition: state
+                entity: *forecast
+                state_not: unavailable
+            card:
+              type: gauge
+              entity: *forecast
+              name: Expected at peak end
+              min: 0
+              max: 100
+              needle: true
+              severity:
+                green: 15
+                yellow: 6
+                red: 0
+          - type: markdown
+            ids: *ids
+            content: |-
+              {%- set ids = config.ids -%}
+              {%- set end = states(ids.forecast) -%}
+              {%- set floor = '%g' | format(state_attr(ids.forecast, 'floor') | float(0)) -%}
+              {%- set when = 'Tomorrow' if state_attr(ids.forecast, 'for') == 'tomorrow' else 'Today' -%}
+              {%- set window = state_attr(ids.forecast, 'peak_window') -%}
+              {%- if end | is_number -%}
+              {%- if state_attr(ids.forecast, 'covered') -%}
+              **{{ when }}, peak {{ window }}: covered.** Expected to end at {{ end }} %, {{ '%.1f' | format(state_attr(ids.forecast, 'spare_kwh') | float(0)) }} kWh above the {{ floor }} % floor
+              {%- else -%}
+              **{{ when }}, peak {{ window }}: not covered.** The battery is expected to reach the {{ floor }} % floor before the end
+              {%- endif -%}
+              {%- if state_attr(ids.forecast, 'assumes_charge') %}, after the planned charge to {{ state_attr(ids.forecast, 'from_gauge') | round(0) | int }} %{% endif %}.
+              {%- else -%}
+              **No peak forecast:** {{ state_attr(ids.forecast, 'why_none') or 'not available' }}.
+              {%- endif %}
+              {%- set energy = states(ids.energy) %}
+              {%- if energy | is_number %}
+
+              Battery now: {{ energy }} kWh above the floor.
+              {%- endif %}
+              {%- set short = state_attr(ids.plan, 'shortfall_cost_usd') %}
+              {%- set handover = state_attr(ids.plan, 'handover_cost_usd') %}
+              {%- if short is number %}
+
+              Running short would cost about ${{ '%.2f' | format(short) }} at peak price{% if handover is number %}, plus ${{ '%.2f' | format(handover) }} for the inverter's recharge after a handover{% endif %}; the plan tops up before peak to avoid it.
+              {%- endif %}
+
+              <small>The forecast assumes an average evening; the charge is sized for a busier one (the load quantile) plus the peak margin.</small>
+
+      # 3. How did the last seven days go, in grades and dollars
+      - type: grid
+        cards:
+          - type: heading
+            heading: The last seven days
+            icon: mdi:calendar-check
+          - type: tile
+            entity: *health
+            name: Health
+          - type: markdown
+            ids: *ids
+            content: |-
+              {%- set ids = config.ids -%}
+              {%- set days = state_attr(ids.health, 'last_7_days') or [] -%}
+              {%- if days | count == 0 -%}
+              No day graded yet. Each TOU day is graded at 21:10 from the grid meter.
+              {%- else -%}
+              {%- set ns = namespace(cost=0) -%}
+              | Day | Grade | Peak grid | Cost |
+              |:--|:--|--:|--:|
+              {%- for r in days | reverse %}
+              {%- set ns.cost = ns.cost + (r.get('cost_usd') or 0) %}
+              | {{ strptime(r.get('date'), '%Y-%m-%d').strftime('%a %m-%d') }} | {{ (r.get('grade') or '?') | capitalize }} | {{ '%.1f' | format(r.get('grid_peak_kwh') or 0) }} kWh | ${{ '%.2f' | format(r.get('cost_usd') or 0) }} |
+              {%- endfor %}
+              {%- set counts = state_attr(ids.health, 'counts') or {} %}
+
+              **{{ days | count }} graded days:** {{ counts.get('good', 0) }} good, {{ counts.get('fair', 0) }} fair, {{ counts.get('poor', 0) }} poor; ${{ '%.2f' | format(ns.cost) }} of grid energy at mid-peak and peak prices.
+              {%- for r in days | reverse if r.get('grade') != 'good' %}
+              {%- if loop.first %}
+
+              Why not Good:
+              {%- endif %}
+              {%- set bought = ['peak bought %.1f kWh' | format(r.get('grid_peak_kwh') or 0)] if r.get('peak_covered') == false else [] %}
+              {{ strptime(r.get('date'), '%Y-%m-%d').strftime('%a %m-%d') }}: {{ (bought + (r.get('reasons') or [])) | join(', ') or r.get('grade') }}
+              {%- endfor %}
+              {%- set why = state_attr(ids.health, 'review_reasons') or [] %}
+              {%- if why | count > 0 %}
+
+              **Review needed:** {{ why | join('; ') }}.
+              {%- endif %}
+              {%- endif %}
+
+      # 4. What did it predict, against what happened
+      - type: grid
+        cards:
+          - type: heading
+            heading: Predicted against what happened
+            icon: mdi:target
+          - type: history-graph
+            title: Battery against the peak-end forecast, 7 days
+            hours_to_show: 168
+            entities:
+              - entity: *gauge
+                name: Battery
+              - entity: *forecast
+                name: Forecast for peak end
+          - type: markdown
+            ids: *ids
+            content: |-
+              {%- set ids = config.ids -%}
+              {%- set days = (state_attr(ids.health, 'last_7_days') or []) | selectattr('gauge_peak_end', 'number') | list -%}
+              {%- if days | count == 0 -%}
+              No peak end recorded yet. On each graded day the gauge forecast at mid-peak start is compared with the gauge at peak end.
+              {%- else -%}
+              | Day | Predicted | Ended at | Off by |
+              |:--|--:|--:|--:|
+              {%- for r in days | reverse %}
+              {%- set p = r.get('pred_gauge_peak_end') %}
+              {%- set e = r.get('peak_end_error_pts') %}
+              | {{ strptime(r.get('date'), '%Y-%m-%d').strftime('%a %m-%d') }} | {{ ((p | round(0) | int) ~ ' %') if p is number else '-' }} | {{ r.get('gauge_peak_end') | round(0) | int }} % | {{ (('%+d' | format(e | round(0) | int)) ~ ' pts') if e is number else '-' }} |
+              {%- endfor %}
+              {%- set bias = state_attr(ids.health, 'peak_end_bias_points') %}
+
+              <small>Predicted: the gauge expected at peak end, worked out at mid-peak start. Off by: predicted minus actual{% if bias is number %}; {{ '%+.1f' | format(bias) }} points on average{% endif %}.</small>
+              {%- endif %}
+
+      # 5. Pack capacity trend, when packs are configured
+      - type: grid
+        cards:
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: *pack1
+                state_not: unavailable
+            card:
+              type: vertical-stack
+              cards:
+                - type: heading
+                  heading: Pack capacity
+                  icon: mdi:battery-heart-outline
+                - type: statistics-graph
+                  title: Ah delivered per clean run-down, weekly mean
+                  entities: *packs
+                  stat_types:
+                    - mean
+                  period: week
+                  days_to_show: 180
+                  chart_type: line

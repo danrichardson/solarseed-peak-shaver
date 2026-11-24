@@ -175,6 +175,8 @@ the learned planner would do and why:
 |--------|-------------------|
 | **Learned Plan** | `charge`, `hold` or `discharge`, with the reason and target as attributes |
 | **Learned Energy Remaining** | kWh the battery will deliver before the inverter hands over to the grid, from the learned curve |
+| **Plan Summary** | The plan in one plain sentence (0.9.2) |
+| **Peak End Forecast** | The gauge expected at the end of the next planned peak window, in percent (0.9.2) |
 
 Call `solarseed_peak_shaver.backfill_learning` once to train it from your recorder
 history. When its plans look right for a few days, switch **Planner in control** to
@@ -185,6 +187,20 @@ in the months you list as "full", charge every night before a TOU day until the 
 stops. Switching back to `classic` is the same one setting.
 
 Details: [docs/how-it-works.md](docs/how-it-works.md).
+
+### Dashboard (0.9.2)
+
+[`dashboards/solarseed.yaml`](dashboards/solarseed.yaml) is a ready dashboard made of stock
+cards only (Home Assistant 2024.10 or later). It answers, in order: what it is doing now and
+why; whether the next peak will be covered; how the last seven graded days went, in grades
+and dollars; what it predicted against what happened; and the third-party packs' capacity
+trend, if you track packs. Create a new dashboard, open its raw configuration editor, and
+paste the file; set your battery gauge (and pack sensors) in the id list at the top first.
+
+![The dashboard, drawn with invented data](docs/dashboard.png)
+
+The picture uses invented numbers and is drawn by a script from the file's own cards and
+templates, not photographed in Home Assistant.
 
 ## On-demand recalculation
 

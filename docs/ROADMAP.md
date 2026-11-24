@@ -32,6 +32,11 @@ as the optional pack sensors in 0.8.0. Current state and operating notes: `docs/
    or stop a charge (HANDOFF, step 5).
 6. **Dashboard:** the voltage curve of the latest run-down, energy per gauge band, the
    capacity trend, and the planner's prediction against what happened.
+   Built in 0.9.2 (`dashboards/solarseed.yaml`; see `docs/how-it-works.md`, "0.9.2
+   additions"): the capacity trend and prediction against what happened, with the plan now
+   and the last seven days. Not built: the run-down voltage curve (a history graph of the
+   bus voltage sensor would do it) and energy per gauge band (the Learned Energy Remaining
+   sensor's `kwh_per_percent_by_band` attribute has it).
 7. **Utility holidays.** Today a TOU day is any weekday (`weekdays_only`), so on a
    utility holiday both planners still charge overnight for it, run on battery through
    "mid-peak" and "peak", and score it as a TOU day; the learned load profile also takes

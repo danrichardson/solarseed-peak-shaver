@@ -95,6 +95,12 @@
       },
       "health": {
         "name": "Health"
+      },
+      "plan_summary": {
+        "name": "Plan Summary"
+      },
+      "peak_end_forecast": {
+        "name": "Peak End Forecast"
       }
     },
     "select": {

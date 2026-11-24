@@ -22,7 +22,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install test dependencies
-        run: pip install pytest pytest-asyncio pyyaml voluptuous
+        run: pip install pytest pytest-asyncio pyyaml voluptuous jinja2
 
       - name: Validate JSON files
         run: |
@@ -59,6 +59,7 @@ jobs:
           python -m py_compile custom_components/solarseed_peak_shaver/const.py
           python -m py_compile custom_components/solarseed_peak_shaver/tariff.py
           python -m py_compile custom_components/solarseed_peak_shaver/holidays.py
+          python -m py_compile custom_components/solarseed_peak_shaver/outlook.py
           python -m py_compile tools/analyze_performance.py
           echo "All Python files compile OK"
 
@@ -113,6 +114,9 @@ jobs:
               sys.exit(1)
           print('services.yaml valid')
           "
+
+      - name: Validate the dashboard
+        run: python -c "import yaml; yaml.safe_load(open('dashboards/solarseed.yaml')); print('dashboard YAML valid')"
 
       - name: Run tests
         run: python -m pytest tests/ -v --tb=short

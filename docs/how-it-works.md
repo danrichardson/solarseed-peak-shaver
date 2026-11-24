@@ -457,6 +457,81 @@ peak price `handover_cost_usd` (what touching the floor costs) and `shortfall_co
 (the predicted peak shortfall, when there is one). Diagnostics show the tariff as read.
 Prices are in dollars; another currency is not supported.
 
+## 0.9.2 additions
+
+**The dashboard.** `dashboards/solarseed.yaml` is a whole dashboard to paste into the raw
+configuration editor of a new dashboard (instructions at the top of the file). Stock cards
+only, in one sections view (Home Assistant 2024.10 or later): heading, markdown, tile,
+gauge, history-graph, statistics-graph, conditional and vertical-stack; no custom cards, no
+custom panel. The entity ids are written once, in a `solarseed_ids` block at the top, and
+used everywhere else through YAML anchors; the markdown cards carry the block and read it
+as `config.ids`. Two ids are the user's to set: the battery gauge (an AC500's by default)
+and the third-party packs' "Ah Between" sensors. It answers, in this order:
+
+1. **Now:** the Plan Summary sentence, the planner's reason for what it is doing, the
+   price period and price now, the tariff, and a warning while battery data is frozen;
+   tiles for the mode asked of the inverter and the planner select.
+2. **The next peak:** a gauge of the Peak End Forecast (hidden while it is unknown), and
+   whether that peak is covered: the expected gauge at peak end and the kWh above the
+   floor, or that the floor is expected first; the energy above the floor now; what
+   running short would cost (`shortfall_cost_usd`, `handover_cost_usd`); or why there is
+   no forecast.
+3. **The last seven days:** the Health tile and a table of the last seven graded days from
+   the Health sensor's `last_7_days`: grade, grid kWh in peak and `cost_usd` (dollars from
+   the health records, never from a constant in a card), the counts and the week's total,
+   why each day that was not Good was not, and the review reasons.
+4. **Predicted against what happened:** a 7-day history graph of the battery gauge with the
+   Peak End Forecast, and a table of each graded day's prediction made at mid-peak start
+   (`pred_gauge_peak_end`) against the gauge at peak end, with the error and its average.
+5. **Pack capacity:** shown only when the first pack's capacity sensor exists: a
+   statistics graph (weekly mean, 180 days) of each pack's Ah per clean run-down.
+
+`docs/dashboard.png` shows it with invented numbers. It is drawn by a local script, not
+photographed in Home Assistant: the card order, options and markdown templates are the
+file's own, rendered with Jinja against the real sensor classes' attributes; the look of
+the stock cards is imitated. `tests/test_dashboard.py` checks the file: ASCII, stock card
+types only, every id written once and used by alias, every integration id one the
+integration creates, every attribute a template reads one the sensor has, and every
+markdown template rendered (with jinja2, strict about undefined names) for a fresh install,
+a short afternoon with a week of grades, a weekend, a covered night, frozen data, and old
+health records without dollars or predictions.
+
+**Plan Summary** (`sensor.solarseed_peak_shaver_plan_summary`, new): the plan in one plain
+sentence, ASCII, at most 255 characters, from the learned planner's last decision and the
+inputs it was made with (`outlook.plan_sentence`). For example "Today: on battery through
+peak 17:00-21:00; expected to end peak at 17 % (2.3 kWh to spare).", "Peak is over for
+today. Tomorrow (Wednesday): holding; the charge to 69 % starts about 6.6 h before 07:00;
+expected to end peak at 10 % (1.1 kWh to spare).", "No peak prices today (Thanksgiving):
+solar first, then battery. Tomorrow's charge is planned from 21:00." A predicted shortfall
+in mid-peak is named with its price at the day's peak rate; with the classic planner in
+control the sentence starts "Shadow plan (classic planner in control):". Unknown before the
+first decision. Text, no state class, so no long-term statistics.
+
+**Peak End Forecast** (`sensor.solarseed_peak_shaver_peak_end_forecast`, new, %,
+measurement): the gauge expected at the end of the next peak window the planner has planned
+for (`outlook.peak_outlook`). Today's window while it is ahead or running; tomorrow's once
+the night rule plans for it (after today's peak end, or the evening before a TOU day). It is
+the prediction the health record grades (`predict_gauge`, mean load, solar discounted by
+the solar confidence), so at mid-peak start it equals that day's `pred_gauge_peak_end`. It
+starts from where the plan will put the battery: the night target before mid-peak (the gauge
+reached, when the bank is already full), the top-up target while a mid-peak top-up runs,
+else the gauge now. Covered means the expected gauge stays more than half a point above the
+floor. Attributes: `for` (today or tomorrow), `for_date`, `peak_window`, `from_hour`,
+`from_gauge`, `spare_kwh`, `covered`, `assumes_charge`, `floor`, and `why_none`. Unknown,
+never a guess, with no battery reading, before the model is trained, or with no peak
+planned (a weekend afternoon, a holiday, a Friday evening); `why_none` says which. The
+forecast uses the average evening; the charge is sized for a busier one (the load quantile)
+plus the margin, so a forecast that clears the floor can sit beside a planned top-up.
+
+Both sensors only read the planner's decision (the runtime keeps the `PlanInputs` of its
+last decision as `last_inputs`); neither changes it, acts, or notifies. A failure in either
+is logged at debug level and gives an unknown state, never an error in the state write.
+
+**A non-finite reading is a missing one.** The learned runtime read a state of `nan` or
+`inf` as a number; a `nan` gauge then failed every mid-peak tick (`int(nan)` in the top-up
+sizing) and would have reached the failsafe after ten minutes. `_float_state` now returns
+None for a non-finite value, as the coordinator's readers already did.
+
 ## State that does not survive an HA restart
 
 Prediction snapshots, SOC checkpoints, hourly solar actuals, charge events, daily min, and

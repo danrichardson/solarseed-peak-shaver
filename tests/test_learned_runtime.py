@@ -121,6 +121,17 @@ class TestReading:
         world.values["sensor.gauge"] = ("unavailable", "%")
         assert rt.read_gauge() is None
 
+    @pytest.mark.parametrize("bad", ["nan", "NaN", "inf", "-inf", "", "unknown"])
+    def test_a_non_finite_reading_is_missing(self, bad):
+        # 0.9.2: "nan" parsed as a float and crashed the mid-peak rule (int(nan)) every tick
+        rt, coord, world = make_runtime(planner="learned")
+        world.values["sensor.gauge"] = (bad, "%")
+        world.values["sensor.grid"] = (bad, "W")
+        assert rt.read_gauge() is None and rt._power_kw("sensor.grid") is None
+        run(rt, datetime(2026, 11, 18, 12, 0), 20)          # mid-peak, past the start-up grace
+        assert rt._tick_fails == 0
+        assert rt.decision.reason == "Battery gauge unavailable: leaving the inverter on battery."
+
 
 class TestShadowMode:
     def test_classic_planner_never_fires_events(self):

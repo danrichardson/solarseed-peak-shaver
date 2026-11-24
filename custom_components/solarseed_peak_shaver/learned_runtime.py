@@ -19,6 +19,7 @@ Nothing in here may break the classic planner. Every entry point catches and log
 from __future__ import annotations
 
 import logging
+import math
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
@@ -31,9 +32,11 @@ from .const import (
     EVENT_PRESERVE_START,
     PLANNER_LEARNED,
 )
-from .holidays import is_last_tou_day_of_week, is_tou_day  # noqa: F401 - is_tou_day re-exported
+from .holidays import holiday_name, is_last_tou_day_of_week, is_tou_day  # noqa: F401 - is_tou_day re-exported
 from .learning import Learner, LoadProfile, build_from_samples, profile_from_hourly
+from .outlook import Outlook, peak_outlook, plan_sentence
 from .packs import PackTracker
+from .tariff import PERIOD_PEAK
 from .planner import (
     MODE_CHARGE,
     MODE_DISCHARGE,
@@ -125,6 +128,7 @@ class LearnedRuntime:
         self.learner = Learner()
         self.profile = LoadProfile(default_kw=coordinator.base_load_kw)
         self.decision: Decision | None = None
+        self.last_inputs: PlanInputs | None = None
         self.bank_full = False
         self.topup_pending = False
         self._topup_day: str | None = None
@@ -256,9 +260,11 @@ class LearnedRuntime:
         if st is None:
             return None
         try:
-            return float(str(st.state).strip())
+            val = float(str(st.state).strip())
         except (ValueError, TypeError):
             return None
+        # "nan" and "inf" parse as floats; a non-finite reading is a missing one (0.9.2)
+        return val if math.isfinite(val) else None
 
     def _power_kw(self, entity_id: str) -> float | None:
         """A power sensor in kW, whatever unit it reports (W assumed if unlabeled)."""
@@ -701,7 +707,36 @@ class LearnedRuntime:
         )
 
     def _decide(self, now: datetime, gauge: float | None) -> Decision:
-        return decide(self._inputs(now, gauge), self.learner, self.profile)
+        inp = self._inputs(now, gauge)
+        self.last_inputs = inp              # what the decision was made with, for the dashboard
+        return decide(inp, self.learner, self.profile)
+
+    # -----------------------------------------------------------------
+    # For the dashboard (0.9.2): read-only views of the last decision
+    # -----------------------------------------------------------------
+    def outlook(self) -> Outlook | None:
+        """The gauge expected at the end of the next planned peak window (None: cannot tell)."""
+        inp = getattr(self, "last_inputs", None)
+        if inp is None or self.decision is None:
+            return None
+        c = self.coord
+        d = inp.now.date()
+        return peak_outlook(inp, self.decision, self.learner, self.profile,
+                            c.windows_on(d), c.windows_on(d + timedelta(days=1)))
+
+    def plan_sentence(self) -> str | None:
+        """The plan in one plain sentence (None before the first decision)."""
+        inp = getattr(self, "last_inputs", None)
+        if inp is None or self.decision is None:
+            return None
+        c = self.coord
+        d = inp.now.date()
+        return plan_sentence(
+            inp, self.decision, self.outlook(), c.windows_on(d), c.windows_on(d + timedelta(days=1)),
+            holiday_today=holiday_name(d, c.holiday_calendar),
+            holiday_tomorrow=holiday_name(d + timedelta(days=1), c.holiday_calendar),
+            in_control=c.planner == PLANNER_LEARNED,
+            peak_price=c.tariff.prices_on(d).get(PERIOD_PEAK))
 
     # -----------------------------------------------------------------
     # Shadow bookkeeping (what the learned planner thought, for the daily scorecard)

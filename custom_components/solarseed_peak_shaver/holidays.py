@@ -344,6 +344,11 @@ def is_last_tou_day_of_week(d: date, weekdays_only: bool,
     return True
 
 
+def day_name(d: date) -> str:
+    """`Monday` ... `Sunday`, in English whatever the locale (for the plan sentence)."""
+    return _DAY_WORDS[d.weekday()]
+
+
 def holiday_attributes(today: date, holidays: HolidayCalendar | str | None,
                        preset: str | None = None) -> dict[str, object]:
     """For the Learned Plan sensor: is today / tomorrow a holiday, and the next one."""

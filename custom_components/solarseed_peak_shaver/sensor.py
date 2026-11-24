@@ -1,7 +1,8 @@
 """Sensor platform for Solarseed Peak Shaver."""
 from __future__ import annotations
 
-from typing import Any
+import logging
+from typing import Any, Callable
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -28,6 +29,8 @@ from .const import (
     SENSOR_HEALTH,
     SENSOR_LEARNED_ENERGY,
     SENSOR_LEARNED_PLAN,
+    SENSOR_PEAK_END_FORECAST,
+    SENSOR_PLAN_SUMMARY,
     SENSOR_PREDICTION_ACCURACY,
     SENSOR_PROJECTED_MIN,
     SENSOR_ROLLING_SCORE,
@@ -37,6 +40,8 @@ from .const import (
 )
 from .coordinator import PeakShaverCoordinator
 from .learned_runtime import PACK_SOC_SUFFIXES
+
+_LOGGER = logging.getLogger(__name__)
 
 SENSOR_DESCRIPTIONS: dict[str, dict] = {
     SENSOR_TARGET_SOC: {
@@ -114,6 +119,21 @@ SENSOR_DESCRIPTIONS: dict[str, dict] = {
         "device_class": None,
         "state_class": None,
         "unit": None,
+    },
+    # --- For the dashboard (0.9.2) ---
+    SENSOR_PLAN_SUMMARY: {
+        "name": "Plan Summary",
+        "icon": "mdi:text-box-outline",
+        "device_class": None,
+        "state_class": None,
+        "unit": None,
+    },
+    SENSOR_PEAK_END_FORECAST: {
+        "name": "Peak End Forecast",
+        "icon": "mdi:battery-clock",
+        "device_class": None,
+        "state_class": SensorStateClass.MEASUREMENT,
+        "unit": "%",
     },
 }
 
@@ -211,6 +231,13 @@ class PeakShaverSensor(CoordinatorEntity[PeakShaverCoordinator], SensorEntity):
 
         if self._sensor_key == SENSOR_HEALTH:
             return coord.health_summary()["state"]
+
+        if self._sensor_key == SENSOR_PLAN_SUMMARY:
+            return _safe(lambda: coord.learned.plan_sentence())
+
+        if self._sensor_key == SENSOR_PEAK_END_FORECAST:
+            outlook = _safe(lambda: coord.learned.outlook())
+            return round(outlook.gauge_end) if outlook is not None else None
 
         if self._sensor_key in (SENSOR_LEARNED_ENERGY, SENSOR_LEARNED_PLAN):
             decision = getattr(getattr(coord, "learned", None), "decision", None)
@@ -316,6 +343,9 @@ class PeakShaverSensor(CoordinatorEntity[PeakShaverCoordinator], SensorEntity):
             }
 
         runtime = getattr(coord, "learned", None)
+        if self._sensor_key == SENSOR_PEAK_END_FORECAST:
+            return _forecast_attributes(coord, runtime)
+
         if runtime is not None and self._sensor_key == SENSOR_LEARNED_PLAN:
             decision = runtime.decision
             if decision is None:
@@ -351,6 +381,39 @@ class PeakShaverSensor(CoordinatorEntity[PeakShaverCoordinator], SensorEntity):
             }
 
         return None
+
+
+def _safe(read: Callable[[], Any]) -> Any:
+    """A dashboard value, or None if it cannot be worked out (never breaks the state write)."""
+    try:
+        return read()
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("Dashboard value not available", exc_info=True)
+        return None
+
+
+def _forecast_attributes(coord: PeakShaverCoordinator, runtime: Any) -> dict[str, Any]:
+    """What the peak-end forecast is for and how it was made, or why there is none."""
+    out: dict[str, Any] = {
+        "for": None, "for_date": None, "peak_window": None, "from_hour": None, "from_gauge": None,
+        "spare_kwh": None, "covered": None, "assumes_charge": None,
+        "floor": coord.gauge_floor, "why_none": None,
+    }
+    outlook = _safe(lambda: runtime.outlook()) if runtime is not None else None
+    if outlook is not None:
+        out.update(outlook.as_dict())
+        return out
+    inp = getattr(runtime, "last_inputs", None)
+    decision = getattr(runtime, "decision", None)
+    if inp is None or decision is None:
+        out["why_none"] = "the planner has not run yet"
+    elif inp.gauge is None:
+        out["why_none"] = "no battery reading"
+    elif not decision.model_ready:
+        out["why_none"] = "the model is still learning"
+    else:
+        out["why_none"] = "no peak window planned yet"
+    return out
 
 
 PACK_SOC = "charge_estimate"
