@@ -105,3 +105,28 @@ that is already full; outside them it would charge unnecessarily.
 **Next review.** After the first week on 0.8.1, check `stale_minutes` and
 `stale_longest_min` in the scorecards: they should be near zero on ordinary days. A real
 freeze while idle is invisible by design; if one shows up in the raw history, revisit.
+
+## 2026-11-23 - idle baseline: battery drain with almost nothing on the inverter (not a clean one)
+
+**What we saw.** For about 26 hours from the morning of 2026-11-22 almost nothing was
+fed by the inverter: AC output read 5 W or less in all but 35 of 1,484 minutes (maximum
+76 W), against 500 to 700 W on every hour of the weeks before. The owner confirms one small
+circuit was still on the inverter with next to no load. The gauge still fell about 1% every
+46 to 56 minutes between 99% and 92% (six steps in the minute log, with AC input, DC input
+and AC output all under 10 W). At the configured 23.5 kWh per 100% that is 0.25 to
+0.3 kW, or 6 to 7 kWh a day. The 100% to 99% step is slower (173 min once) and was left out.
+
+**Why it is not a clean baseline.**
+- One night and one day. The gauge moves in whole percent, and 23.5 kWh per 100% is the
+  configured capacity, not a measured one, so allow roughly 15% either way.
+- The owner notes that a load of about 150 W elsewhere in the house was on all day. The AC
+  output sensor never showed anything like it, so that load was not fed by the inverter and
+  does not explain the drain. What does is open: the system's own overhead, or the capacity
+  figure. The pack current in the `bluetti` bucket would settle it, as would a second run
+  with the wiring confirmed.
+
+**Data note.** The load profile for 2026-11-22 and 2026-11-23 is idle-day data. Both days
+went into the learned 14-day history (about 7% off the weekday mean until they age out,
+and only felt outside the full-charge months). Leave both out of load-profile analysis and
+the first review; their scorecards are not comparable with the other days. No code change
+was made for this.
