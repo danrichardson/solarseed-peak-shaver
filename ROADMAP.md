@@ -1,9 +1,9 @@
 # Solarseed Peak Shaver roadmap: one chunk at a time, to 1.0
 
-**Next, paste this** (build session, a capable cheaper model):
+**Next, paste this** (review session, the strongest model):
 
 ```
-work on the next chunk in ROADMAP.md
+review the last chunk per REVIEW.md
 ```
 
 That sentence and this path are all an agent gets. The other half is [REVIEW.md](REVIEW.md).
@@ -75,7 +75,7 @@ each.
 
 | # | Chunk | Release | Needs | Review | Status |
 |---|---|---|---|---|---|
-| P1 | Thanksgiving: holidays, and the false alarm at full | 0.8.2 | care | yes | |
+| P1 | Thanksgiving: holidays, and the false alarm at full | 0.8.2 | care | yes | Built 2026-11-23, `chunk-P1` 745c6b2 |
 | P2 | Settings you can find | 0.9.0 | plumbing, care | yes | |
 | P3 | Tariff as data | 0.9.1 | care | yes | |
 | P4 | The dashboard | 0.9.2 | taste | yes | |
@@ -380,3 +380,30 @@ then the reviewer's `Review:` line.
   `docs/`. Not verified: the box (no token on this machine; state taken from the handoff of
   the same evening). Open with Dan: the classic planner as legacy, and what "e and uing"
   meant in his first message (not assumed to authorize pushes).
+- 2026-11-23, P1 build. Plan: a pure `holidays.py` with the one `is_tou_day` and the PGE
+  rules as data; every day-type test in the coordinator and the runtime through it; option
+  `holiday_preset` (default `pge` when absent); holiday attributes on the Learned Plan
+  sensor; hold at full and the restart read made "cannot tell"; 0.8.2. Leave out the
+  21:10-to-midnight gap (P2) and custom rules (P3). Seen working by tests on the
+  Thanksgiving week and by the shadow replay. Pulse: tests green (402 + 1 skipped); no
+  token on this machine, box not checked.
+  Built: as planned, on `chunk-P1` (745c6b2). 436 passed, 1 skipped. `grep -n "weekday()"`
+  finds only `holidays.py` (a test enforces it). Decided: the weekly top-up is owed on the
+  last TOU day of a Monday-to-Sunday week (TOU today, not tomorrow, no TOU day left in the
+  week), so Wednesday 11-25 owes none and Friday 11-27 does; a Friday holiday moves it to
+  Thursday; an every-day plan with no holidays still never owes one. `infer_mode` had the
+  same blind spot: at 99 % or more with no grid input it said "discharge", which in a
+  non-full month would have let the battery run down overnight after a restart; now None,
+  so the first decision is adopted. `mode_matches(hold)` and `infer_mode` also return None
+  with no gauge (was: judged anyway). Shadow replay with learned in control, before and
+  after: the only difference is the three resends and the "did not follow the hold
+  command" error gone (86 to 83 events).
+  Skipped: `analysis/scripts/backtest.py` keeps its own hard-coded holiday list (local,
+  untracked). Unsure: the preset applies even with weekdays-only off (an every-day plan
+  still gets PGE holidays unless set to `none`); `holiday_today`/`holiday_tomorrow` are
+  the holiday's name or null, not booleans; the options form gained one field in the old
+  flat form (P2 reorganizes it).
+  Look at: Wednesday 11-25 evening, the Learned Plan sensor shows `holiday_tomorrow:
+  Thanksgiving`, phase off-peak, no charge; no daily message on Thursday; a night charge
+  Thursday evening for Friday; the next full-charge evening has no "not responding" error.
+  Ship by Wednesday evening (the night rule looks at tomorrow from 21:00).
