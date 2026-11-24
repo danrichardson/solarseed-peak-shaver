@@ -76,7 +76,7 @@ each.
 | # | Chunk | Release | Needs | Review | Status |
 |---|---|---|---|---|---|
 | P1 | Thanksgiving: holidays, and the false alarm at full | 0.8.2 | care | yes | Built 2026-11-23, `chunk-P1` 745c6b2 |
-| P2 | Settings you can find | 0.9.0 | plumbing, care | yes | |
+| P2 | Settings you can find | 0.9.0 | plumbing, care | yes | Built 2026-11-24, `chunk-P2` 95761f0 |
 | P3 | Tariff as data | 0.9.1 | care | yes | |
 | P4 | The dashboard | 0.9.2 | taste | yes | |
 | P5 | A stranger can install it | 0.9.3 | care, taste | yes | |
@@ -280,7 +280,9 @@ hours are three options; seasons do not exist.
 - Dollars come from the tariff in the health record, the daily message and the plan sensor.
 
 **Where to start:** `docs/ROADMAP.md` items 7 and 8; `health.py` `PRICE_*`;
-`coordinator._classify_period`; the planner's three-window model in `planner.py`.
+`coordinator._classify_period`; the planner's three-window model in `planner.py`. Since
+0.9.0 the options are a menu: a tariff section is a new entry in `options.SECTIONS`, and any
+tariff key the timers read at start belongs in `RELOAD_KEYS` and `setup_signature`.
 
 **Defaults:** keep the planner's shape of three windows (cheap, middle, dear) and map a
 tariff onto it; a tariff that does not fit that shape (two dear windows a day, say) is
@@ -407,3 +409,44 @@ then the reviewer's `Review:` line.
   Thanksgiving`, phase off-peak, no charge; no daily message on Thursday; a night charge
   Thursday evening for Friday; the next full-charge evening has no "not responding" error.
   Ship by Wednesday evening (the night rule looks at tomorrow from 21:00).
+- 2026-11-24, P2 build. Plan: the options flow opens on a six-item menu, each section saves
+  `{**entry.options, **user_input}` (a cleared optional sensor is stored as empty so it does
+  not fall back to the setup data); new `select` and `number` platforms with the planner,
+  holiday preset, peak margin, load quantile, solar confidence and gauge floor, each writing
+  one option; an update listener that reloads only when a setting read at setup changed
+  (sensors, hours, schedule, packs), never for the six tuning entities (they are read live
+  every tick); events after the 21:10 scoring carried into the next graded day's summary,
+  marked with their date; 0.9.0. Leave out health thresholds as options and the first-time
+  flow (P5). Seen working by tests (form sections with keys the form never shows, entity
+  writes without a reload, a Friday 23:00 ignored command in Monday's grade) and the shadow
+  replay. Pulse: tests green (436 + 1 skipped); no token on this machine, box not checked.
+  Built: as planned, on `chunk-P2` (95761f0), stacked on P1 because main has not shipped.
+  530 passed, 1 skipped; with voluptuous on the path (a gitignored scratch copy; CI and this
+  machine lack it, so `test_config_flow.py` is skipped there) 556 passed. Menu: Battery and
+  sensors, Schedule, Learned planner, Third-party packs, Notifications, Classic planner
+  (legacy); `options.py` holds the sections (every `CONF_*` key in exactly one, a test checks)
+  and the merge. The battery SOC sensor and today's forecast are now editable there (they
+  were setup-only). Schedule checks mid-peak < peak < end, as setup did. The update listener
+  is new (there was none: settings read at start waited for a restart); it compares the
+  integration's own reading of nine settings read at start (`RELOAD_KEYS`) and reloads only
+  when one differs, so the hours as a list or as text do not trigger it. Late events: the
+  scoring snapshots `command_retries`, `commands_not_followed`, `stale_minutes` and the
+  longest frozen stretch; at midnight the gain is kept with its date under a new
+  `late_events` key, graded on the next graded day ("inverter ignored a command late on
+  11-27"), cleared once graded, kept while the next scoring has nothing to grade, carried
+  over a restart across midnight. Existing scorecard and health fields keep their meaning
+  (no storage bump). Shadow replay with learned in control, P1 base against P2: identical
+  (decisions, 83 events, summary). A scratch variant that also does the 21:10 scoring shows
+  the carry on recorded evenings (11-12, 11-16, 11-17, 11-18 each carried one ignored command
+  into the next weekday and cleared after it); those are the replay's usual artifacts (the
+  recorded days ran classic, so learned commands were never followed), not box faults.
+  Skipped: health thresholds as options; the first-time flow (P5). Unsure: events on a day
+  that is not scored (weekend, holiday) are still not carried, by design (those days stay
+  ungraded), so a Saturday ignored command shows only in its own alert; carried retries
+  alone do not change a grade; `hacs.json` says HA 2024.1.0 but the options flow already
+  relied on HA setting `OptionsFlow.config_entry` (2024.11+), unchanged here (P5/P6).
+  Look at: the options menu (six sections, labels, a save in one section leaves the others);
+  the Planner select and four numbers on the device page under Configuration; switching
+  Planner there should log "Option planner set to ... from the device page" and no reload;
+  the first daily messages after install, since any real evening "not followed" now shows
+  in the next weekday's grade.
