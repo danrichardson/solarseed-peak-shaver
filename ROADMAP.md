@@ -1,11 +1,11 @@
 # Solarseed Peak Shaver roadmap: one chunk at a time, to 1.0
 
-**Next, paste this** (P4 reviewed 2026-11-24, go after small fixes, made on `chunk-P4`;
-0.9.1 and 0.9.2 ship together when Dan says so, nothing in them has to reach the box before
-P5. 0.9.0 still has to be on the box before Wednesday 11-25 evening for Thanksgiving):
+**Next, paste this** (P5 built 2026-11-24 on `chunk-P5`, 0.9.3, to be reviewed; 0.9.1 to
+0.9.3 can ship together when Dan says so. 0.9.0 still has to be on the box before Wednesday
+11-25 evening for Thanksgiving):
 
 ```
-work on the next chunk in ROADMAP.md
+review the last chunk per REVIEW.md
 ```
 
 That sentence and this path are all an agent gets. The other half is [REVIEW.md](REVIEW.md).
@@ -81,7 +81,7 @@ each.
 | P2 | Settings you can find | 0.9.0 | plumbing, care | yes | Built 2026-11-24, `chunk-P2` 95761f0 |
 | P3 | Tariff as data | 0.9.1 | care | yes | Built 2026-11-24, `chunk-P3` eb18a74 |
 | P4 | The dashboard | 0.9.2 | taste | yes | Built 2026-11-24, `chunk-P4` f443a46 |
-| P5 | A stranger can install it | 0.9.3 | care, taste | yes | |
+| P5 | A stranger can install it | 0.9.3 | care, taste | yes | Built 2026-11-24, `chunk-P5` 2851170 |
 | P6 | Ready to be seen | 1.0.0 | taste, Dan's word first | yes | |
 | P7 | Refill | | | | |
 
@@ -168,6 +168,7 @@ What has been learned so far (details in `docs/HANDOFF.md` and
 | "Review needed" message | once per change to review | Health sensor |
 | "Battery data frozen / back" | once per freeze | `stale_minutes` option, 0 = off |
 | Command resend | 3 per commanded mode, then one alert | `VERIFY_RETRIES` in `learned_runtime.py` |
+| Setup check: repair issue + log line (no notification, no action) | every 10 min once HA runs; logs only on change | `setup_check.py`, `CHECK_EVERY` |
 
 Add a row when a chunk adds something.
 
@@ -669,3 +670,81 @@ then the reviewer's `Review:` line.
   `ids` key, cosmetic), `<small>` and tables in the markdown card, `strptime` and
   `selectattr(..., 'number')` in HA's sandbox. Owner taste inspection pending. Nothing in
   0.9.2 needs to reach the box before P5.
+- 2026-11-24, P5 build. Plan: the first-time flow gains a "Learned planner sensors" screen
+  (gauge, load, grid, PV, tomorrow's forecast, each optional and checked to exist); load and
+  grid together write `planner: learned` into the new entry, one without the other is
+  refused, neither writes `classic`; an absent key still reads classic, so existing entries
+  are untouched. The first-time schedule screen becomes Tariff: hours (peak end by 23),
+  weekdays, the three prices and the holiday preset, checked by `options.check_tariff`.
+  Every field of every form gets a description saying what to pick and what empty does, a
+  test holds both string files to it. A setup check (`setup_check.py`) every 10 minutes
+  once HA is running: configured sensors that do not exist, the learned planner in control
+  without load or grid, a forecast without Solcast's hourly detail, and events the planner
+  fires that no automation listens to (`hass.bus.async_listeners()`); each is a Home
+  Assistant repair issue plus one log line when it appears or changes, cleared when fixed;
+  no notifications. Blueprints: `source_url` to each file, `min_version`, descriptions
+  that say which planner state each event means and the AC500 values. Classic marked legacy
+  in the forms, README and how-it-works; README installation for a stranger (HA 2024.11+,
+  Solcast only, two-price caveat, the analysis tool's own prices); `hacs.json` to
+  2024.11.0. `git rm` the three tracked Zone.Identifier files. 0.9.3. Leave out: a second
+  forecast adapter, making the battery kWh sensor optional, an "unavailable for long"
+  check (false alarms at night), P6's README rewrite. Seen working by tests with HA mocked
+  (flow, setup check, setup with sensors missing), YAML checks of the blueprints against
+  HA's blueprint schema as read from the core source, and the replay (runtime untouched,
+  expected identical). Pulse: 657 passed, 8 skipped; 695 with voluptuous and jinja2; no
+  token on this machine (no `analysis/.ha_token.json`), box not checked.
+  Built: as planned, on `chunk-P5` (2851170), on P4 with its review (2e1eaa8). 694 passed,
+  9 skipped (the new flow file needs voluptuous, like the old one); 754 passed, none skipped,
+  with `analysis/p2_pydeps`. Replay (`p4_replay_compare.py`, learned in control, P3 baseline,
+  which the P4 review found identical to P4): IDENTICAL, 45 lines, 83 events; the runtime
+  and planner are untouched. strings.json equals en.json; the diff adds no non-ASCII line.
+  First-time flow: four screens (Battery and solar forecast; Learned planner sensors;
+  Tariff; Notifications). `first_planner` writes `learned` with load and grid, `classic`
+  otherwise, into the new entry's data; no migration, absent key still classic (a test).
+  Tariff screen: hours, Weekdays only, three prices, holiday preset (Custom left to the
+  options: it needs rules), calculation hours; `check_tariff` with the preset's own rules
+  so a preset is not turned Custom; stores only the screen's keys (no rules text, no empty
+  off-peak price); peak end 24, 17-17 and mid after peak refused, falling prices refused with
+  `{prices_detail}`, a two-price plan accepted. Strings: every field of all ten forms has a
+  label and description in both files; optional ones say what empty does, required sensors
+  start "Required." (`test_first_install.py` builds each form and checks both files). Classic
+  fields say "(classic planner, legacy)" in the first-time flow; the planner select and
+  options already did. Setup check: three issues (`missing_sensors`,
+  `forecast_without_detail`, `no_automations`), each a repair issue `<key>_<entry_id>` plus
+  one WARNING line, updated on change, deleted with one INFO line when fixed, stale ones
+  cleared on the first run after start, deleted with the entry; judged only when
+  `hass.state` is running; `@callback` so it runs on the loop; a raise is logged once and
+  never reaches setup (tests run the real `async_setup_entry` with every sensor missing and
+  with the timer failing). Blueprints: `source_url` was the repository root, so a re-import
+  would have fetched the README page; now each file's URL, matching the README links (a
+  test). Found while writing them: the learned planner also holds before its night charge
+  starts, not only after; the hold blueprint says so. README: what you need (HA 2024.11,
+  Solcast only, three windows, two-price caveat, one inverter family), the four screens,
+  repairs, the blueprints with the AC500 values and what each mode is for, classic as legacy,
+  the analysis tool's own prices. `hacs.json` 2024.11.0. Three Zone.Identifier files removed
+  (all one blob: a Windows download marker carrying a local download path).
+  Skipped: the battery kWh sensor stays required even for a learned-only install (the
+  classic shadow and the gauge fallback read it; a template of percent times capacity is
+  the README's advice); a sensor that exists but stays unavailable for hours is not a setup
+  issue (false alarms on idle nights; the staleness check and the planners' missing-reading
+  paths cover it); a second forecast adapter (the form says Solcast plainly); the dashboard
+  paste check (no browser, no box).
+  Unsure: none of this has been seen in a Home Assistant UI. From memory of the core source,
+  not re-read this session (downloading the `homeassistant` wheel to read it was refused by
+  this session's permissions): the event trigger registers through `hass.bus.async_listen`,
+  so `hass.bus.async_listeners()` counts enabled automations per event type (the REST
+  `/api/events` view reads the same counts, so the reviewer can check this read-only on the
+  box); the blueprint importer turns `github.com/.../blob/...` into the raw URL and the
+  schema allows `homeassistant: min_version`; `ir.async_create_issue` keywords; the frontend
+  rendering a placeholder's "- " lines as a list in the repair dialog; an optional number
+  selector with an empty suggested value; `description_placeholders` in config-flow error
+  text (as in the Tariff section since 0.9.1). hassfest on the new `issues` and
+  `config.step.learned` strings runs only in CI.
+  Look at: (1) on the box, read-only, `/api/events` lists `solarseed_peak_shaver_charge_start`,
+  `_charge_stop` and `_preserve_start` with a listener count of at least 1 each, so 0.9.3 will
+  raise no `no_automations` issue there; and Settings, System, Repairs is empty ten minutes
+  after the install. (2) If Dan is willing, "add integration" on a scratch entry: four
+  screens, the tomorrow forecast pre-filled, load without grid refused, peak end 24 refused,
+  the entry's planner `learned`, then delete it (its issues go with it). (3) Import one
+  blueprint from its README URL on a scratch HA, or at least read the three descriptions.
+  (4) The README's "What you need" and setup sections as a stranger would.
