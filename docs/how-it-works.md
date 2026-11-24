@@ -282,6 +282,51 @@ changes to review, sent with the phone app's high-priority options (`ttl: 0`,
 `priority: high`, time-sensitive); a notify service that rejects those keys gets the
 plain message. A review session then follows the routine in `docs/tuning-log.md`.
 
+## 0.8.2 additions
+
+**Utility holidays.** `holidays.py` (pure Python) holds the one function that says whether
+a date is a TOU day: `is_tou_day(date, weekdays_only, holiday_preset)`. The coordinator
+wraps it as `coord.is_tou_day(date)`, and every caller goes through it: the classic
+planner's timers (scheduled calculation, forecast update, off-peak hold, SOC
+checkpoints, daily scoring) and the refresh at setup; the learned planner's today and
+tomorrow, the price window it books grid energy under, the handover record and the load
+profile (live and backfill). Nothing else in the integration looks at the day of the week.
+
+A holiday is handled like a weekend day: the evening before it is not a pre-TOU night (no
+charge for it), the day itself is off-peak all day (no mid-peak or peak window, grid
+energy booked as off-peak), it is not scored, graded or messaged, and its load goes into
+the learner's "other days" history. On the holiday evening the night rule plans the next
+TOU day's charge as usual.
+
+The option `holiday_preset` has two values. `pge` (the default, also when the key is
+absent from an entry saved by an older version) is PGE Time of Day: New Year's Day,
+Memorial Day (last Monday in May), Independence Day, Labor Day (first Monday in
+September), Thanksgiving (fourth Thursday in November) and Christmas Day, with a
+Saturday holiday observed on the Friday before and a Sunday one on the Monday after. The
+rules are data (fixed date, nth or last weekday of a month, observed-day shift) and
+computed for any year; the shift can cross New Year (2028-01-01 is observed on Friday
+2027-12-31). `none` is the old behaviour. The preset applies whether or not weekdays-only
+is on. The Learned Plan sensor shows `holiday_preset`, `holiday_today` and
+`holiday_tomorrow` (the holiday's name, or null) and `next_holiday` ("2026-11-26
+Thanksgiving").
+
+**Weekly top-up.** It is owed from peak end on the last TOU day of a Monday-to-Sunday
+week: a TOU day followed by a non-TOU day with no TOU day left in the week. Before 0.8.2
+it was any TOU day followed by a non-TOU day, which with holidays would have charged to
+full on the evening before a mid-week holiday as well as on Friday. A Friday holiday makes
+Thursday the last TOU day.
+
+**Hold at full is "cannot tell".** On 2026-11-23 a charge ended at 100 %, the planner
+sent hold, and for about 30 minutes the AC500 carried the house from the battery (AC in
+0 W, AC out 0.5 to 0.7 kW) until the gauge fell to 99 % and it passed the grid through.
+The verification wanted grid near the load, called it "not in hold", resent the command
+three times and logged an error. `mode_matches(hold)` now returns None (no resend, no
+alert, no `commands_not_followed`) while the bank is full, the gauge is 99 % or more, or
+the gauge is missing. `infer_mode`, used on the first tick after a restart when no
+command was restored, had the same blind spot: at 99 % or more (or no gauge) with no grid
+input it now says None instead of "discharge", so the first decision (hold at full) is
+adopted rather than a discharge that would have run the battery down overnight.
+
 ## State that does not survive an HA restart
 
 Prediction snapshots, SOC checkpoints, hourly solar actuals, charge events, daily min, and

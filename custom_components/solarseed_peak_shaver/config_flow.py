@@ -10,6 +10,7 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 
+from .holidays import HOLIDAY_PRESETS, normalize_preset
 from .const import (
     CONF_BASE_LOAD,
     CONF_BATTERY_CAPACITY,
@@ -22,6 +23,7 @@ from .const import (
     CONF_GAUGE_ENTITY,
     CONF_GAUGE_FLOOR,
     CONF_GRID_POWER_ENTITY,
+    CONF_HOLIDAY_PRESET,
     CONF_LOAD_POWER_ENTITY,
     CONF_LOAD_QUANTILE,
     CONF_MIDPEAK_START,
@@ -54,6 +56,7 @@ from .const import (
     DEFAULT_CHARGE_THRESHOLD,
     DEFAULT_FULL_CHARGE_MONTHS,
     DEFAULT_GAUGE_FLOOR,
+    DEFAULT_HOLIDAY_PRESET,
     DEFAULT_LOAD_QUANTILE,
     DEFAULT_MIDPEAK_START,
     DEFAULT_NOTIFICATIONS_ENABLED,
@@ -379,6 +382,16 @@ class PeakShaverOptionsFlow(config_entries.OptionsFlow):
                     CONF_WEEKDAYS_ONLY,
                     default=current.get(CONF_WEEKDAYS_ONLY, DEFAULT_WEEKDAYS_ONLY),
                 ): selector.BooleanSelector(),
+                vol.Required(
+                    CONF_HOLIDAY_PRESET,
+                    default=normalize_preset(current.get(CONF_HOLIDAY_PRESET, DEFAULT_HOLIDAY_PRESET)),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=list(HOLIDAY_PRESETS),
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        translation_key=CONF_HOLIDAY_PRESET,
+                    )
+                ),
                 vol.Required(
                     CONF_NOTIFICATIONS_ENABLED,
                     default=current.get(CONF_NOTIFICATIONS_ENABLED, DEFAULT_NOTIFICATIONS_ENABLED),

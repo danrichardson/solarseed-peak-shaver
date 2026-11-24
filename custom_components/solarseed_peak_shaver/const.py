@@ -2,7 +2,7 @@
 
 DOMAIN = "solarseed_peak_shaver"
 NAME = "Solarseed Peak Shaver"
-VERSION = "0.8.1"
+VERSION = "0.8.2"
 
 # --- Config keys ---
 CONF_BATTERY_CAPACITY = "battery_capacity"
@@ -46,6 +46,9 @@ CONF_PACK_CAPACITY_AH = "pack_capacity_ah"
 CONF_CAPACITY_V_HIGH = "capacity_v_high"
 CONF_CAPACITY_V_LOW = "capacity_v_low"
 
+# --- 0.8.2: utility holidays (off-peak all day). Absent key = PGE, like every other default.
+CONF_HOLIDAY_PRESET = "holiday_preset"
+
 PLANNER_CLASSIC = "classic"
 PLANNER_LEARNED = "learned"
 
@@ -78,6 +81,7 @@ DEFAULT_PACK_CURRENT_CHARGE_POSITIVE = True
 DEFAULT_PACK_CAPACITY_AH = 100.0
 DEFAULT_CAPACITY_V_HIGH = 53.0
 DEFAULT_CAPACITY_V_LOW = 51.5
+DEFAULT_HOLIDAY_PRESET = "pge"
 
 # Seconds the classic planner waits before acting on the first calculation after a start
 # that wants a charge. Sensors can report a wrong value for a moment while HA loads

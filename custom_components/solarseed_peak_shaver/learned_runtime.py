@@ -31,6 +31,7 @@ from .const import (
     EVENT_PRESERVE_START,
     PLANNER_LEARNED,
 )
+from .holidays import is_last_tou_day_of_week, is_tou_day  # noqa: F401 - is_tou_day re-exported
 from .learning import Learner, LoadProfile, build_from_samples, profile_from_hourly
 from .packs import PackTracker
 from .planner import (
@@ -53,15 +54,12 @@ TICK_FAILS_FAILSAFE = 10    # consecutive failed ticks before returning the inve
 IDLE_POWER_KW = 0.01        # every power sensor at or under this (10 W) means nothing is moving
 PUBLISH_EVERY_MIN = 5       # sensors are refreshed on a change, and at least this often
 FULL_CONFIRM_MIN = 10       # minutes of "charging asked, nothing going in" that mean full
+FULL_GAUGE_PCT = 99.0       # at or above this a hold and a discharge look the same
 TOPUP_MAX_HOURS = 24        # a weekly top-up that has not finished by then is abandoned
 
 # Sibling sensors of a pack's current sensor ("..._current"), found by name.
 PACK_VOLTAGE_SUFFIXES = ("_voltage",)
 PACK_SOC_SUFFIXES = ("_battery", "_soc", "_state_of_charge", "_battery_level")
-
-
-def is_tou_day(d: date, weekdays_only: bool) -> bool:
-    return d.weekday() < 5 if weekdays_only else True
 
 
 def infer_mode(gauge: float | None, grid_kw: float | None, load_kw: float | None, pv_kw: float,
@@ -74,6 +72,10 @@ def infer_mode(gauge: float | None, grid_kw: float | None, load_kw: float | None
     if load_kw < 0.15 or pv_kw > load_kw:
         return None
     if grid_kw < 0.1:
+        # A full bank in hold carries the house from the battery until the gauge drops
+        # off 100 (about 30 min on the AC500, 2026-11-23): it looks exactly like discharge.
+        if gauge is None or gauge >= FULL_GAUGE_PCT:
+            return None
         return MODE_DISCHARGE
     if gauge is not None and gauge <= floor + 2:
         return None                     # at the floor the grid carries the house in any mode
@@ -100,6 +102,10 @@ def mode_matches(mode: str, gauge: float | None, grid_kw: float, load_kw: float,
         return grid_kw < 0.1
     if mode == MODE_HOLD:
         if load_kw < 0.15 or pv_kw > load_kw:
+            return None
+        # Full: the inverter runs the house from the battery before it passes the grid
+        # through (2026-11-23: AC in 0 W for about 30 min after a charge ended at 100 %).
+        if bank_full or gauge is None or gauge >= FULL_GAUGE_PCT:
             return None
         return load_kw * 0.5 < grid_kw < load_kw + 0.3
     return None
@@ -321,7 +327,7 @@ class LearnedRuntime:
             self.learner.sample(gauge, max(grid, 0.0), max(load, 0.0), max(pv, 0.0), hours)
             self._day_kwh[now.hour] = self._day_kwh.get(now.hour, 0.0) + max(load, 0.0) * hours
             self._day_cover[now.hour] = self._day_cover.get(now.hour, 0.0) + hours
-            period = c._classify_period(now) if is_tou_day(now.date(), c.weekdays_only) else "off-peak"
+            period = c._classify_period(now) if c.is_tou_day(now.date()) else "off-peak"
             self._grid_kwh[period] = self._grid_kwh.get(period, 0.0) + max(grid, 0.0) * hours
             self._dirty = True
         elif hours > Learner.MAX_SAMPLE_HOURS or None in (gauge, grid, load) or not pv_ok:
@@ -555,7 +561,7 @@ class LearnedRuntime:
         c = self.coord
         # only hours that were actually observed for most of the hour count
         full = {h: v / self._day_cover[h] for h, v in self._day_kwh.items() if self._day_cover.get(h, 0) >= 0.75}
-        self.profile.observe_day(is_tou_day(self._day, c.weekdays_only), full)
+        self.profile.observe_day(c.is_tou_day(self._day), full)
         self.learner.age(float(max((today - self._day).days, 1)))
         self._day = today
         self._day_kwh, self._day_cover, self._shadow, self._grid_kwh = {}, {}, {}, {}
@@ -583,10 +589,12 @@ class LearnedRuntime:
 
     def _update_topup(self, now: datetime) -> None:
         c = self.coord
-        today_tou = is_tou_day(now.date(), c.weekdays_only)
-        tomorrow_tou = is_tou_day(now.date() + timedelta(days=1), c.weekdays_only)
-        # Owed once, from peak end on the last TOU day of the week.
-        if today_tou and not tomorrow_tou and now.hour >= c.peak_end and self._topup_day != now.date().isoformat():
+        today_tou = c.is_tou_day(now.date())
+        tomorrow_tou = c.is_tou_day(now.date() + timedelta(days=1))
+        # Owed once, from peak end on the last TOU day of the week. The evening before a
+        # mid-week holiday is not that (Friday still comes); a Friday holiday makes it Thursday.
+        last_of_week = is_last_tou_day_of_week(now.date(), c.weekdays_only, c.holiday_preset)
+        if last_of_week and now.hour >= c.peak_end and self._topup_day != now.date().isoformat():
             self._topup_day = now.date().isoformat()
             self.topup_pending = not self.bank_full
             self._dirty = True
@@ -608,8 +616,8 @@ class LearnedRuntime:
         return PlanInputs(
             now=now,
             gauge=gauge,
-            is_tou_today=is_tou_day(now.date(), c.weekdays_only),
-            is_tou_tomorrow=is_tou_day(now.date() + timedelta(days=1), c.weekdays_only),
+            is_tou_today=c.is_tou_day(now.date()),
+            is_tou_tomorrow=c.is_tou_day(now.date() + timedelta(days=1)),
             midpeak_start=c.midpeak_start,
             peak_start=c.peak_start,
             peak_end=c.peak_end,
@@ -648,7 +656,7 @@ class LearnedRuntime:
         # The handover: the gauge reaching the floor inside the rate window (it bounces up
         # to the recovery level straight after, so only the first touch is recorded).
         if (gauge is not None and "handover_at" not in s and gauge <= c.gauge_floor + 0.5
-                and is_tou_day(now.date(), c.weekdays_only) and c.midpeak_start <= now.hour < c.peak_end):
+                and c.is_tou_day(now.date()) and c.midpeak_start <= now.hour < c.peak_end):
             s["handover_at"] = now.strftime("%H:%M")
             s["handover_period"] = c._classify_period(now)
             if d.handover_kwh is not None:
@@ -802,7 +810,7 @@ class LearnedRuntime:
         rows = [(t, v) for t, v in sorted(load_h.items()) if t.date() < today]
 
         learner = build_from_samples(samples)
-        profile = profile_from_hourly(rows, lambda d: is_tou_day(d, c.weekdays_only),
+        profile = profile_from_hourly(rows, c.is_tou_day,
                                       LoadProfile(default_kw=c.base_load_kw))
         learned_pts = sum(learner.discharge.p) + sum(learner.grid_charge.p)
         if not samples or learned_pts <= 0:

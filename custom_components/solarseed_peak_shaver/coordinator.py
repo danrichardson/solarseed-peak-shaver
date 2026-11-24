@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import datetime, time
+from datetime import date, datetime, time
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -27,6 +27,7 @@ from .const import (
     CONF_GAUGE_ENTITY,
     CONF_GAUGE_FLOOR,
     CONF_GRID_POWER_ENTITY,
+    CONF_HOLIDAY_PRESET,
     CONF_LOAD_POWER_ENTITY,
     CONF_LOAD_QUANTILE,
     CONF_MIDPEAK_START,
@@ -59,6 +60,7 @@ from .const import (
     DEFAULT_CHARGE_THRESHOLD,
     DEFAULT_FULL_CHARGE_MONTHS,
     DEFAULT_GAUGE_FLOOR,
+    DEFAULT_HOLIDAY_PRESET,
     DEFAULT_LOAD_QUANTILE,
     DEFAULT_MIDPEAK_START,
     DEFAULT_NOTIFICATIONS_ENABLED,
@@ -92,6 +94,7 @@ from .const import (
     SENSOR_PROJECTED_MIN,
     SENSOR_TARGET_SOC,
 )
+from .holidays import is_tou_day, normalize_preset
 from .health import HEALTH_REVIEW, daily_message, grade_day, review_message
 from .health import status as health_status
 from .store import PeakShaverStore
@@ -177,6 +180,15 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
     @property
     def weekdays_only(self) -> bool:
         return bool(self._cfg(CONF_WEEKDAYS_ONLY, DEFAULT_WEEKDAYS_ONLY))
+
+    @property
+    def holiday_preset(self) -> str:
+        """Utility holidays that are off-peak all day; absent key = PGE, unknown = none."""
+        return normalize_preset(self._cfg(CONF_HOLIDAY_PRESET, DEFAULT_HOLIDAY_PRESET))
+
+    def is_tou_day(self, d: date) -> bool:
+        """Do the mid-peak and peak windows apply on `d`? (weekday rule and holidays)"""
+        return is_tou_day(d, self.weekdays_only, self.holiday_preset)
 
     @property
     def battery_soc_entity(self) -> str:
@@ -491,8 +503,8 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
     @callback
     def _on_scheduled_time(self, now: datetime) -> None:
         """Handle scheduled recalculation."""
-        if self.weekdays_only and now.weekday() >= 5:
-            _LOGGER.debug("Skipped calculation (weekend)")
+        if not self.is_tou_day(now.date()):
+            _LOGGER.debug("Skipped calculation (not a TOU day)")
             return
         self.hass.async_create_task(self.async_request_refresh())
 
@@ -521,8 +533,8 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         """
         now = datetime.now()
 
-        if self.weekdays_only and now.weekday() >= 5:
-            _LOGGER.debug("Forecast update ignored (weekend)")
+        if not self.is_tou_day(now.date()):
+            _LOGGER.debug("Forecast update ignored (not a TOU day)")
             return
 
         earliest = self.schedule_hours[0] if self.schedule_hours else 3
@@ -621,7 +633,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         if now.month not in self.seasonal_months:
             return
 
-        if self.weekdays_only and now.weekday() >= 5:
+        if not self.is_tou_day(now.date()):
             return
 
         if self.planner == PLANNER_LEARNED:
@@ -654,7 +666,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
     @callback
     def _on_soc_checkpoint(self, now: datetime) -> None:
         """Record battery SOC at key rate window timestamps."""
-        if self.weekdays_only and now.weekday() >= 5:
+        if not self.is_tou_day(now.date()):
             return
         soc_state = self.hass.states.get(self.battery_soc_entity)
         if soc_state is None:
@@ -707,7 +719,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
     @callback
     def _on_daily_scoring_time(self, now: datetime) -> None:
         """Run daily performance scoring after peak ends."""
-        if self.weekdays_only and now.weekday() >= 5:
+        if not self.is_tou_day(now.date()):
             return
         self.hass.async_create_task(self._async_score_daily_performance())
 
@@ -1412,11 +1424,11 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
 
         wants_charge = charge_needed > self.charge_threshold
 
-        # Weekdays only: the listeners already skip weekends, but the refresh at setup,
+        # Not a TOU day (weekend or holiday): the listeners already skip it, but the refresh at setup,
         # the Recalculate button and the service do not. They still update the sensors;
         # nothing is fired, scored or recorded (0.8.0 ran a full calculation on a Sunday).
-        if self.weekdays_only and now.weekday() >= 5:
-            _LOGGER.debug("Weekend with weekdays-only on: sensors updated, no events")
+        if not self.is_tou_day(now.date()):
+            _LOGGER.debug("Not a TOU day (weekend or holiday): sensors updated, no events")
             if self.planner != PLANNER_LEARNED:
                 self._events_armed = True  # a weekend start must not restrict Monday's 03:00
             return result

@@ -128,6 +128,7 @@
           "peak_start_hour": "Peak start",
           "peak_end_hour": "Peak end",
           "weekdays_only": "Weekdays only",
+          "holiday_preset": "Utility holidays",
           "notifications_enabled": "Enable notifications",
           "notify_entity": "Notification service",
           "charge_threshold": "Minimum charge to act on",
@@ -173,12 +174,21 @@
           "bus_voltage_entity": "Optional. Empty: the mean of the packs' own voltage sensors.",
           "pack_capacity_ah": "Used to turn amp-hours since full into a percent.",
           "capacity_v_high": "Each discharge from full is measured from where the bus falls through this voltage.",
-          "capacity_v_low": "... to where it falls through this one. Pick two that most deep evenings reach."
+          "capacity_v_low": "... to where it falls through this one. Pick two that most deep evenings reach.",
+          "holiday_preset": "Days your utility prices off-peak all day. On a holiday the mid-peak and peak windows do not apply: no charge the night before for them, no weekly top-up the evening before a mid-week one, nothing graded or learned as a weekday. PGE: New Year's Day, Memorial Day, Independence Day, Labor Day, Thanksgiving and Christmas, a Saturday holiday moved to Friday and a Sunday one to Monday. None: weekdays only, as before 0.8.2."
         }
       }
     },
     "error": {
       "invalid_voltage_range": "The lower voltage must be below the upper voltage."
+    }
+  },
+  "selector": {
+    "holiday_preset": {
+      "options": {
+        "none": "None",
+        "pge": "Portland General Electric (6 holidays)"
+      }
     }
   }
 }
