@@ -125,11 +125,22 @@ and AC output all under 10 W). At the configured 23.5 kWh per 100% that is 0.25 
   The pack current in the `bluetti` bucket would settle it, as would a second run with the
   load confirmed.
 
-**Whole-house baseline (to do).** The same days also give an idle baseline for the whole
-house on the Emporia Vue mains sensor (see `docs/analysis-plan.md`), after taking out the
-150 W load above (24 h of it is 3.6 kWh a day; use the owner's corrected figure when there
-is one). It needs the mains sensor's history for the same window, which has not been
-pulled: the local hourly statistics end on 11-19. Add the figure here once it is.
+**Whole-house baseline.** The same days give an idle baseline for the whole house, because
+the loads normally on the inverter were on the mains instead. Source: the Emporia Vue mains
+sensor (5-minute means, see `docs/analysis-plan.md`) minus the AC500's grid input, over the
+hours the inverter was not charging. The Vue is the independent whole-house monitor, not the
+billing meter.
+- Overnight, the three hours before dawn on 11-23: about 570 W, which is 13.7 kWh a day if
+  it were sustained. The fridge is in that figure (about 58 W, with defrost bumps).
+- Weekday daytime, 06:00 to 20:00 on 11-23, people home: 860 W on average. Sunday afternoon
+  and evening: 780 W. Whole-house energy for 00:00 to 20:00 on 11-23: 16.0 kWh.
+- The 150 W load above (the owner's estimate, to be corrected) is in the daytime figures. The
+  only persistent 150 W step in the 5-minute data is on the morning of 11-23, so the overnight
+  figure probably does not include it; the owner confirms when it was on. The step at the
+  end of the day cannot be separated from the circuits going back on the inverter.
+- The AC500's own 0.25 to 0.3 kW above is on top of this and comes back as grid charging, so
+  the cost of an idle day is the two together.
+Raw pulls stay in `analysis/data/raw/` (local only).
 
 **Data note.** The load profile for 2026-11-22 and 2026-11-23 is idle-day data. Both days
 went into the learned 14-day history (about 7% off the weekday mean until they age out,
