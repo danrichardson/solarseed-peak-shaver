@@ -1,19 +1,71 @@
 # Handoff - winter 2026 analysis and rework
 
-## RESUME HERE - Monday 2026-11-23: 0.8.1 built on a branch (with the idle fix), waiting for Dan
+## RESUME HERE - Monday 2026-11-23 night: 0.8.1 is released and running; what is left
 
-**State.** Everything under "Sunday afternoon" below is done. The timers (21:00 switch,
-Monday check, minute logger) run on one workstation only, the one that ran the 0.8.1
-session; the switch and Monday-check copies on the other machine (the original
-workstation) were stopped on 2026-11-22. On the timer machine aiohttp, pytest,
-pytest-asyncio and pyyaml had to be reinstalled into Python 3.13 (`analysis/scripts/ha.py`
-fails without aiohttp). The dry run of the planner switch was clean. 0.8.1 (steps 3a and
-3b, plus the setup change below) is built and tested on branch `release-0.8.1` in the
-worktree `../solarseed-peak-shaver-0.8.1` (402 tests). Only the branch has been pushed
-(at Dan's request, and not since; newer commits are local); `main`, tags and releases are
-untouched, and nothing is installed. The switch to `learned` ran at 21:02 Sunday on the
-0.8.0 code and the planner read back as `learned`, in control; the box stays on 0.8.0
-until Dan releases 0.8.1.
+**State (checked read-only on the evening of 11-23).**
+- **Released.** `v0.8.1` is commit `c351c84` on `main`. It was merged, tagged and published as a
+  pre-release with empty notes outside the session that built it; that session then wrote the
+  release notes and made it the Latest release. CI is green. Later commits on `main` are docs
+  only (tuning log, this handoff). The remote branch `release-0.8.1` and the worktree
+  `../solarseed-peak-shaver-0.8.1` are merged and can be deleted.
+- **Installed.** HACS shows installed and latest both `v0.8.1`; HA was restarted; the config
+  entry is `loaded`. The restart changed nothing on the inverter: the AC500 mode read `unknown`
+  for 4 s and went straight back, and no event fired. The log shows the new skip working at
+  startup (`Classic calculation skipped: solar forecast entity ... has no data`); on 0.8.0 that
+  moment was a failed setup attempt.
+- **Live.** Planner `learned`, in control; `sensor.solarseed_peak_shaver_health` exists;
+  `battery_data_stale` false; the night hold is in place. The 21:00 switch to `learned` ran on
+  Sunday 11-22 and all three timers (switch, Monday check, minute logger) have finished, so
+  nothing is watching the box automatically.
+- **Access.** Ask the owner for a fresh temporary HA admin before pulling anything
+  (`analysis/scripts/ha.py login`, token cached in the gitignored `analysis/.ha_token.json`,
+  delete it when done; never write the password anywhere). Read-only unless approved.
+- Untracked and not ours, leave alone: `docs/ac500-ui-screens.zip`, `docs/whitepaper/`.
+
+**Data caveat.** Most circuits were not on the inverter from the morning of 11-22 to the
+evening of 11-23, so AC output was about 0 W (`docs/tuning-log.md`, 2026-11-23). Both days went
+into the learner's 14-day load history (a small effect, and only outside the full-charge
+months), their scorecards are not comparable, and the Health sensor's one graded day (11-23,
+`good`, 0 kWh from the grid) means nothing. Leave 11-22 and 11-23 out of the first review.
+
+**What is left to develop** (roughly by value; `docs/ROADMAP.md` has the rest):
+1. **0.8.2 candidate: a false "hold not followed" after a full charge.** On the evening of 11-23
+   the charge ended at 100 %, the planner sent hold (`TIME_CONTROL`), and for about 30 min the
+   inverter carried the house from the battery (AC in 0 W, AC out 540-680 W) until the gauge fell
+   to 99 %, then passed the grid through (AC in about equal to AC out). `mode_matches(MODE_HOLD)`
+   wants grid between half the load and load + 0.3 kW, so it said "not in hold", resent the
+   command three times and logged `Inverter did not follow the hold command after 3 attempts`
+   (an ERROR, a notification, and a `commands_not_followed` that grades a day Poor). Proposed
+   fix: return None (cannot tell) for `MODE_HOLD` while the gauge is at 100 / `bank_full`, as
+   `MODE_CHARGE` already does near the top; add a test with those readings. Related: the daily
+   scoring runs at 21:10 and the summary resets at the day roll, so events between 21:10 and
+   midnight are in no graded day (this one included); consider scoring the next morning or
+   carrying them over.
+2. **PGE holidays (ROADMAP 7).** First live case: Thursday 2026-11-26 (Thanksgiving). Until it is
+   built a holiday is planned, run on battery through "mid-peak" and "peak", and scored like a
+   weekday. No harm, but a wasted cycle and a polluted weekday profile.
+3. **The first review session**, about a week after install (from 11-30), following "How a
+   review session works" in `docs/tuning-log.md`. Leave out 11-22, 11-23 and 11-26. First check
+   that the health thresholds sort days the way a human would.
+4. **Tariff as data** (ROADMAP 8; before any public release), the **dashboard** (ROADMAP 6),
+   and the later items 9 to 11.
+5. **Open analysis questions.** The AC500 loses 0.25 to 0.3 kW with almost nothing on it (6 to
+   7 kWh a day): overhead, or is 23.5 kWh per 100 % too high? Pack current from the `bluetti`
+   bucket on the metrics container would settle it. The whole-house idle baseline is in the
+   tuning log. A feed that freezes while the system is idle is invisible by design. A
+   load-profile guard that ignores hours under about 20 W was proposed and not wanted.
+6. **White paper 0.95** (separate session).
+
+**Rules of the road** (unchanged). `python -m pytest -q` before every commit (402 tests); a
+version bump touches both `const.py` and `manifest.json`; a deploy is push `main`, tag, release,
+the owner clicks install in HACS, restart HA, the agent verifies; nothing on the live box beyond
+read-only without approval each time; this repo is public (no household detail, credentials,
+IPs, or exact times of the owner's own actions).
+
+## 0.8.1 build notes (Sunday evening to Monday morning)
+
+What 0.8.1 does: `docs/how-it-works.md`, "0.8.1 additions". The first threshold set and the
+review routine: `docs/tuning-log.md`.
 
 **Box change, 2026-11-22 (approved by Dan).** The Available Battery kWh template helper
 (`sensor.available_battery_kwh`) now has the availability template
@@ -59,25 +111,6 @@ that part if a hard failure is preferred when Solcast is misconfigured). A test 
 real `async_setup_entry` with the battery unavailable and checks the learned runtime
 starts and still asks for the night charge.
 
-**Next, in this order, each needing Dan's go:**
-1. Review the branch (`git log main..release-0.8.1`; commits, tests, docs).
-2. Merge to `main` (fast-forward), push, tag `v0.8.1`, `gh release create v0.8.1`
-   (runbook below, "Deploy runbook"). Check `git log origin/main..main` first: one doc
-   commit from an earlier session (`7d52d0e`, the 0.8.0 handoff) is not on `origin/main`;
-   it is already on the pushed branch, so merging publishes it.
-3. Dan clicks install in HACS on an evening after 21:00, then restarts HA; the agent
-   verifies (`update.solarseed_peak_shaver_update` at v0.8.1; no `solarseed` errors; the
-   new `Solarseed Peak Shaver Health` sensor exists, unknown until the first TOU day is
-   graded at 21:10; planner still `learned`; the AC500 mode unchanged by the restart).
-   The next morning `battery_data_stale` should be false after an idle night.
-   A restart on a weekday evening is now safe: nothing fires from the first reading.
-4. Done: the Monday 11-23 07:10 check ran (see above).
-5. After the first week on 0.8.1: the first review session (`docs/tuning-log.md`).
-
-What 0.8.1 does: `docs/how-it-works.md`, "0.8.1 additions". Tuning log created with the
-review routine and the first threshold set. Still open: white paper 0.95 (separate
-session), PGE holidays (ROADMAP 7), tariff as data (ROADMAP 8; the health dollars use
-constants for now).
 
 ## Earlier, Sunday 2026-11-22 afternoon: 0.8.0 installed, timers to restart (done)
 

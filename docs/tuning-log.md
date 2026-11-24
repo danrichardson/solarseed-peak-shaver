@@ -145,5 +145,6 @@ Raw pulls stay in `analysis/data/raw/` (local only).
 **Data note.** The load profile for 2026-11-22 and 2026-11-23 is idle-day data. Both days
 went into the learned 14-day history (about 7% off the weekday mean until they age out,
 and only felt outside the full-charge months). Leave both out of load-profile analysis and
-the first review; their scorecards are not comparable with the other days. No code change
+the first review; their scorecards are not comparable with the other days. The Health
+sensor's first graded day (11-23: `good`, 0 kWh from the grid) is one of them. No code change
 was made for this.
