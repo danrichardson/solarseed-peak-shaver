@@ -143,6 +143,8 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
 
         # Learned model + planner (0.7.0). Created in async_setup_entry; None in old tests.
         self.learned: Any = None
+        # setup_signature() when this entry started; a saved change to it reloads (0.9.0)
+        self.started_with: dict[str, Any] = {}
 
     # -----------------------------------------------------------------
     # Config accessors
@@ -365,6 +367,22 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
     @property
     def capacity_v_low(self) -> float:
         return self._num_cfg(CONF_CAPACITY_V_LOW, DEFAULT_CAPACITY_V_LOW, 0.0, 1000.0)
+
+    def setup_signature(self) -> dict[str, Any]:
+        """The settings read once at start (timers, state listeners, pack sensors), as the
+        integration understands them. A saved change to any of these reloads the entry
+        (`options.RELOAD_KEYS`); everything else is read live."""
+        return {
+            CONF_BATTERY_SOC_ENTITY: self.battery_soc_entity.strip(),
+            CONF_SOLAR_FORECAST_ENTITY: self.solar_forecast_entity.strip(),
+            CONF_SOLAR_ACTUAL_ENTITY: self.solar_actual_entity.strip(),
+            CONF_MIDPEAK_START: self.midpeak_start,
+            CONF_PEAK_START: self.peak_start,
+            CONF_PEAK_END: self.peak_end,
+            CONF_SCHEDULE_HOURS: tuple(self.schedule_hours),
+            CONF_SEASONAL_PRESERVATION: self.seasonal_preservation,
+            CONF_PACK_CURRENT_ENTITIES: tuple(self.pack_current_entities),
+        }
 
     @property
     def battery_data_stale(self) -> bool:
@@ -1023,6 +1041,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             scorecard["health"] = day_health
 
         self.last_daily_scorecard = scorecard
+        self._mark_scored(today, day_health is not None)
 
         # Persist
         self.store.add_scorecard(scorecard)
@@ -1099,6 +1118,7 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             _LOGGER.exception("Could not read the learned-planner summary")
             return
         day_health = self._grade_health(today, summary)
+        self._mark_scored(today, day_health is not None)
         if day_health is None:
             return
         scorecard = {"date": today, "learned": summary, "health": day_health}
@@ -1107,6 +1127,17 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         if self.data is not None:
             self.async_set_updated_data(self.data)
         self._send_daily_notifications(scorecard)
+
+    def _mark_scored(self, today: str, graded: bool) -> None:
+        """Tell the learned runtime the day has been scored, so what happens between now
+        and midnight is carried into the next graded day instead of falling in none."""
+        runtime = getattr(self, "learned", None)
+        if runtime is None or not hasattr(runtime, "mark_scored"):
+            return
+        try:
+            runtime.mark_scored(today, self._now(), graded)
+        except Exception:  # noqa: BLE001 - bookkeeping must never break the daily scoring
+            _LOGGER.exception("Could not mark the day as scored")
 
     def _send_daily_notifications(self, scorecard: dict) -> None:
         day_health = scorecard.get("health")

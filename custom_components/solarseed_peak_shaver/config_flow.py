@@ -11,6 +11,16 @@ from homeassistant.core import callback
 from homeassistant.helpers import selector
 
 from .holidays import HOLIDAY_PRESETS, normalize_preset
+from .options import (
+    SECTION_BATTERY,
+    SECTION_CLASSIC,
+    SECTION_LEARNED,
+    SECTION_NOTIFICATIONS,
+    SECTION_PACKS,
+    SECTION_SCHEDULE,
+    SECTIONS,
+    merge_section,
+)
 from .const import (
     CONF_BASE_LOAD,
     CONF_BATTERY_CAPACITY,
@@ -305,295 +315,160 @@ class PeakShaverConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 
 class PeakShaverOptionsFlow(config_entries.OptionsFlow):
-    """Handle options for Solarseed Peak Shaver."""
+    """Options, as a menu of sections (0.9.0). Each section saves only its own fields."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Manage the options."""
+        """The menu."""
+        return self.async_show_menu(step_id="init", menu_options=list(SECTIONS))
+
+    async def async_step_battery(self, user_input: dict[str, Any] | None = None):
+        """Battery and sensors."""
+        return self._section(SECTION_BATTERY, user_input)
+
+    async def async_step_schedule(self, user_input: dict[str, Any] | None = None):
+        """Price windows, weekdays and holidays."""
         errors: dict[str, str] = {}
         if user_input is not None:
-            v_high = user_input.get(CONF_CAPACITY_V_HIGH, DEFAULT_CAPACITY_V_HIGH)
-            v_low = user_input.get(CONF_CAPACITY_V_LOW, DEFAULT_CAPACITY_V_LOW)
+            current = self._current(user_input)
+            mid = float(current.get(CONF_MIDPEAK_START, DEFAULT_MIDPEAK_START))
+            peak = float(current.get(CONF_PEAK_START, DEFAULT_PEAK_START))
+            end = float(current.get(CONF_PEAK_END, DEFAULT_PEAK_END))
+            if mid >= peak:
+                errors[CONF_PEAK_START] = "invalid_time_range"
+            if peak >= end:
+                errors[CONF_PEAK_END] = "invalid_time_range"
+        return self._section(SECTION_SCHEDULE, user_input, errors)
+
+    async def async_step_learned(self, user_input: dict[str, Any] | None = None):
+        """Learned planner."""
+        return self._section(SECTION_LEARNED, user_input)
+
+    async def async_step_packs(self, user_input: dict[str, Any] | None = None):
+        """Third-party packs."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            current = self._current(user_input)
+            v_high = current.get(CONF_CAPACITY_V_HIGH, DEFAULT_CAPACITY_V_HIGH)
+            v_low = current.get(CONF_CAPACITY_V_LOW, DEFAULT_CAPACITY_V_LOW)
             if float(v_low) >= float(v_high):
                 errors[CONF_CAPACITY_V_LOW] = "invalid_voltage_range"
-            else:
-                return self.async_create_entry(title="", data=user_input)
+        return self._section(SECTION_PACKS, user_input, errors)
 
-        current = {**self.config_entry.data, **self.config_entry.options, **(user_input or {})}
+    async def async_step_notifications(self, user_input: dict[str, Any] | None = None):
+        """Notifications and logging."""
+        return self._section(SECTION_NOTIFICATIONS, user_input)
 
-        data_schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_BATTERY_CAPACITY,
-                    default=current.get(CONF_BATTERY_CAPACITY, DEFAULT_BATTERY_CAPACITY),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0.5, max=200.0, step=0.5, unit_of_measurement="kWh",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_BASE_LOAD,
-                    default=current.get(CONF_BASE_LOAD, DEFAULT_BASE_LOAD),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0.0, max=10.0, step=0.1, unit_of_measurement="kW",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_MIN_SAFE_SOC,
-                    default=current.get(CONF_MIN_SAFE_SOC, DEFAULT_MIN_SAFE_SOC),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0.0, max=100.0, step=0.1, unit_of_measurement="kWh",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_MIDPEAK_START,
-                    default=current.get(CONF_MIDPEAK_START, DEFAULT_MIDPEAK_START),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0, max=23, step=1, unit_of_measurement="hour",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_PEAK_START,
-                    default=current.get(CONF_PEAK_START, DEFAULT_PEAK_START),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0, max=23, step=1, unit_of_measurement="hour",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_PEAK_END,
-                    default=current.get(CONF_PEAK_END, DEFAULT_PEAK_END),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=1, max=24, step=1, unit_of_measurement="hour",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_WEEKDAYS_ONLY,
-                    default=current.get(CONF_WEEKDAYS_ONLY, DEFAULT_WEEKDAYS_ONLY),
-                ): selector.BooleanSelector(),
-                vol.Required(
-                    CONF_HOLIDAY_PRESET,
-                    default=normalize_preset(current.get(CONF_HOLIDAY_PRESET, DEFAULT_HOLIDAY_PRESET)),
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=list(HOLIDAY_PRESETS),
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                        translation_key=CONF_HOLIDAY_PRESET,
-                    )
-                ),
-                vol.Required(
-                    CONF_NOTIFICATIONS_ENABLED,
-                    default=current.get(CONF_NOTIFICATIONS_ENABLED, DEFAULT_NOTIFICATIONS_ENABLED),
-                ): selector.BooleanSelector(),
-                vol.Optional(
-                    CONF_NOTIFY_ENTITY,
-                    default=current.get(CONF_NOTIFY_ENTITY, ""),
-                ): selector.TextSelector(
-                    selector.TextSelectorConfig(
-                        type=selector.TextSelectorType.TEXT,
-                    )
-                ),
-                vol.Required(
-                    CONF_CHARGE_THRESHOLD,
-                    default=current.get(CONF_CHARGE_THRESHOLD, DEFAULT_CHARGE_THRESHOLD),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0.0, max=5.0, step=0.1, unit_of_measurement="kWh",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_SEASONAL_PRESERVATION,
-                    default=current.get(CONF_SEASONAL_PRESERVATION, DEFAULT_SEASONAL_PRESERVATION),
-                ): selector.BooleanSelector(),
-                vol.Required(
-                    CONF_SEASONAL_MONTHS,
-                    default=current.get(
-                        CONF_SEASONAL_MONTHS,
-                        ",".join(str(m) for m in DEFAULT_SEASONAL_MONTHS),
-                    ),
-                ): selector.TextSelector(
-                    selector.TextSelectorConfig(
-                        type=selector.TextSelectorType.TEXT,
-                    )
-                ),
-                vol.Required(
-                    CONF_VERBOSE_LOGGING,
-                    default=current.get(CONF_VERBOSE_LOGGING, DEFAULT_VERBOSE_LOGGING),
-                ): selector.BooleanSelector(),
-                vol.Optional(
-                    CONF_SOLAR_ACTUAL_ENTITY,
-                    description={"suggested_value": current.get(CONF_SOLAR_ACTUAL_ENTITY, "")},
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                # --- Learned planner (all optional) ---
-                vol.Required(
-                    CONF_PLANNER,
-                    default=current.get(CONF_PLANNER, DEFAULT_PLANNER),
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[PLANNER_CLASSIC, PLANNER_LEARNED],
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                    )
-                ),
-                vol.Optional(
-                    CONF_GAUGE_ENTITY,
-                    description={"suggested_value": current.get(CONF_GAUGE_ENTITY, "")},
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional(
-                    CONF_LOAD_POWER_ENTITY,
-                    description={"suggested_value": current.get(CONF_LOAD_POWER_ENTITY, "")},
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional(
-                    CONF_GRID_POWER_ENTITY,
-                    description={"suggested_value": current.get(CONF_GRID_POWER_ENTITY, "")},
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional(
-                    CONF_PV_POWER_ENTITY,
-                    description={"suggested_value": current.get(CONF_PV_POWER_ENTITY, "")},
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Optional(
-                    CONF_SOLAR_FORECAST_TOMORROW_ENTITY,
-                    description={
-                        "suggested_value": current.get(CONF_SOLAR_FORECAST_TOMORROW_ENTITY, "")
-                    },
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Required(
-                    CONF_FULL_CHARGE_MONTHS,
-                    default=_as_csv(
-                        current.get(CONF_FULL_CHARGE_MONTHS, DEFAULT_FULL_CHARGE_MONTHS)
-                    ),
-                ): selector.TextSelector(
-                    selector.TextSelectorConfig(
-                        type=selector.TextSelectorType.TEXT,
-                    )
-                ),
-                vol.Required(
-                    CONF_LOAD_QUANTILE,
-                    default=current.get(CONF_LOAD_QUANTILE, DEFAULT_LOAD_QUANTILE),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0.5, max=0.99, step=0.01,
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_SOLAR_CONFIDENCE,
-                    default=current.get(CONF_SOLAR_CONFIDENCE, DEFAULT_SOLAR_CONFIDENCE),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0.0, max=1.5, step=0.05,
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_GAUGE_FLOOR,
-                    default=current.get(CONF_GAUGE_FLOOR, DEFAULT_GAUGE_FLOOR),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0, max=50, step=1, unit_of_measurement="%",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_RECOVERY_PCT,
-                    default=current.get(CONF_RECOVERY_PCT, DEFAULT_RECOVERY_PCT),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0, max=100, step=1, unit_of_measurement="%",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_PEAK_MARGIN_KWH,
-                    default=current.get(CONF_PEAK_MARGIN_KWH, DEFAULT_PEAK_MARGIN_KWH),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0.0, max=10.0, step=0.1, unit_of_measurement="kWh",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_STALE_MINUTES,
-                    default=current.get(CONF_STALE_MINUTES, DEFAULT_STALE_MINUTES),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0, max=240, step=1, unit_of_measurement="min",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                # --- Third-party packs (all optional) ---
-                vol.Optional(
-                    CONF_PACK_CURRENT_ENTITIES,
-                    description={"suggested_value": current.get(CONF_PACK_CURRENT_ENTITIES, [])},
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor", multiple=True)
-                ),
-                vol.Required(
-                    CONF_PACK_CURRENT_CHARGE_POSITIVE,
-                    default=current.get(
-                        CONF_PACK_CURRENT_CHARGE_POSITIVE, DEFAULT_PACK_CURRENT_CHARGE_POSITIVE
-                    ),
-                ): selector.BooleanSelector(),
-                vol.Optional(
-                    CONF_BUS_VOLTAGE_ENTITY,
-                    description={"suggested_value": current.get(CONF_BUS_VOLTAGE_ENTITY, "")},
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                vol.Required(
-                    CONF_PACK_CAPACITY_AH,
-                    default=current.get(CONF_PACK_CAPACITY_AH, DEFAULT_PACK_CAPACITY_AH),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=1, max=2000, step=1, unit_of_measurement="Ah",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_CAPACITY_V_HIGH,
-                    default=current.get(CONF_CAPACITY_V_HIGH, DEFAULT_CAPACITY_V_HIGH),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0, max=1000, step=0.1, unit_of_measurement="V",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_CAPACITY_V_LOW,
-                    default=current.get(CONF_CAPACITY_V_LOW, DEFAULT_CAPACITY_V_LOW),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0, max=1000, step=0.1, unit_of_measurement="V",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-            }
-        )
+    async def async_step_classic(self, user_input: dict[str, Any] | None = None):
+        """Classic planner (legacy)."""
+        return self._section(SECTION_CLASSIC, user_input)
 
-        return self.async_show_form(step_id="init", data_schema=data_schema, errors=errors)
+    # -----------------------------------------------------------------
+
+    def _current(self, user_input: dict[str, Any] | None = None) -> dict[str, Any]:
+        """What the form shows: setup data, then stored options, then what was just typed."""
+        return {**self.config_entry.data, **self.config_entry.options, **(user_input or {})}
+
+    def _section(self, section: str, user_input: dict[str, Any] | None,
+                 errors: dict[str, str] | None = None):
+        errors = errors or {}
+        if user_input is not None and not errors:
+            return self.async_create_entry(
+                title="", data=merge_section(dict(self.config_entry.options), user_input, section)
+            )
+        current = self._current(user_input)
+        schema = vol.Schema(dict(_field(key, current) for key in SECTIONS[section]))
+        return self.async_show_form(step_id=section, data_schema=schema, errors=errors)
+
+
+# --- The options form fields -------------------------------------------------------------
+
+
+def _number(lo: float, hi: float, step: float, unit: str | None = None) -> Any:
+    cfg: dict[str, Any] = {"min": lo, "max": hi, "step": step, "mode": selector.NumberSelectorMode.BOX}
+    if unit:
+        cfg["unit_of_measurement"] = unit
+    return selector.NumberSelector(selector.NumberSelectorConfig(**cfg))
+
+
+def _sensor(multiple: bool = False) -> Any:
+    if multiple:
+        return selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor", multiple=True))
+    return selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+
+
+def _text() -> Any:
+    return selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT))
+
+
+def _choice(options: list[str], translation_key: str | None = None) -> Any:
+    cfg: dict[str, Any] = {"options": options, "mode": selector.SelectSelectorMode.DROPDOWN}
+    if translation_key:
+        cfg["translation_key"] = translation_key
+    return selector.SelectSelector(selector.SelectSelectorConfig(**cfg))
+
+
+# key: (default when unset, selector factory). Optional sensors have no default and are
+# shown with their current value as a suggestion, so they can be cleared.
+_FIELDS: dict[str, tuple[Any, Any]] = {
+    CONF_BATTERY_SOC_ENTITY: ("", lambda: _sensor()),
+    CONF_SOLAR_FORECAST_ENTITY: (DEFAULT_SOLAR_FORECAST_ENTITY, lambda: _sensor()),
+    CONF_BATTERY_CAPACITY: (DEFAULT_BATTERY_CAPACITY, lambda: _number(0.5, 200.0, 0.5, "kWh")),
+    CONF_BASE_LOAD: (DEFAULT_BASE_LOAD, lambda: _number(0.0, 10.0, 0.1, "kW")),
+    CONF_MIN_SAFE_SOC: (DEFAULT_MIN_SAFE_SOC, lambda: _number(0.0, 100.0, 0.1, "kWh")),
+    CONF_MIDPEAK_START: (DEFAULT_MIDPEAK_START, lambda: _number(0, 23, 1, "hour")),
+    CONF_PEAK_START: (DEFAULT_PEAK_START, lambda: _number(0, 23, 1, "hour")),
+    CONF_PEAK_END: (DEFAULT_PEAK_END, lambda: _number(1, 24, 1, "hour")),
+    CONF_WEEKDAYS_ONLY: (DEFAULT_WEEKDAYS_ONLY, lambda: selector.BooleanSelector()),
+    CONF_HOLIDAY_PRESET: (DEFAULT_HOLIDAY_PRESET, lambda: _choice(list(HOLIDAY_PRESETS), CONF_HOLIDAY_PRESET)),
+    CONF_NOTIFICATIONS_ENABLED: (DEFAULT_NOTIFICATIONS_ENABLED, lambda: selector.BooleanSelector()),
+    CONF_NOTIFY_ENTITY: (None, lambda: _text()),
+    CONF_CHARGE_THRESHOLD: (DEFAULT_CHARGE_THRESHOLD, lambda: _number(0.0, 5.0, 0.1, "kWh")),
+    CONF_SCHEDULE_HOURS: (DEFAULT_SCHEDULE_HOURS, lambda: _text()),
+    CONF_SEASONAL_PRESERVATION: (DEFAULT_SEASONAL_PRESERVATION, lambda: selector.BooleanSelector()),
+    CONF_SEASONAL_MONTHS: (DEFAULT_SEASONAL_MONTHS, lambda: _text()),
+    CONF_VERBOSE_LOGGING: (DEFAULT_VERBOSE_LOGGING, lambda: selector.BooleanSelector()),
+    CONF_SOLAR_ACTUAL_ENTITY: (None, lambda: _sensor()),
+    CONF_PLANNER: (DEFAULT_PLANNER, lambda: _choice([PLANNER_CLASSIC, PLANNER_LEARNED], CONF_PLANNER)),
+    CONF_GAUGE_ENTITY: (None, lambda: _sensor()),
+    CONF_LOAD_POWER_ENTITY: (None, lambda: _sensor()),
+    CONF_GRID_POWER_ENTITY: (None, lambda: _sensor()),
+    CONF_PV_POWER_ENTITY: (None, lambda: _sensor()),
+    CONF_SOLAR_FORECAST_TOMORROW_ENTITY: (None, lambda: _sensor()),
+    CONF_FULL_CHARGE_MONTHS: (DEFAULT_FULL_CHARGE_MONTHS, lambda: _text()),
+    CONF_LOAD_QUANTILE: (DEFAULT_LOAD_QUANTILE, lambda: _number(0.5, 0.99, 0.01)),
+    CONF_SOLAR_CONFIDENCE: (DEFAULT_SOLAR_CONFIDENCE, lambda: _number(0.0, 1.5, 0.05)),
+    CONF_GAUGE_FLOOR: (DEFAULT_GAUGE_FLOOR, lambda: _number(0, 50, 1, "%")),
+    CONF_RECOVERY_PCT: (DEFAULT_RECOVERY_PCT, lambda: _number(0, 100, 1, "%")),
+    CONF_PEAK_MARGIN_KWH: (DEFAULT_PEAK_MARGIN_KWH, lambda: _number(0.0, 10.0, 0.1, "kWh")),
+    CONF_STALE_MINUTES: (DEFAULT_STALE_MINUTES, lambda: _number(0, 240, 1, "min")),
+    CONF_PACK_CURRENT_ENTITIES: (None, lambda: _sensor(multiple=True)),
+    CONF_PACK_CURRENT_CHARGE_POSITIVE: (DEFAULT_PACK_CURRENT_CHARGE_POSITIVE, lambda: selector.BooleanSelector()),
+    CONF_BUS_VOLTAGE_ENTITY: (None, lambda: _sensor()),
+    CONF_PACK_CAPACITY_AH: (DEFAULT_PACK_CAPACITY_AH, lambda: _number(1, 2000, 1, "Ah")),
+    CONF_CAPACITY_V_HIGH: (DEFAULT_CAPACITY_V_HIGH, lambda: _number(0, 1000, 0.1, "V")),
+    CONF_CAPACITY_V_LOW: (DEFAULT_CAPACITY_V_LOW, lambda: _number(0, 1000, 0.1, "V")),
+}
+
+# Lists the form edits as comma-separated text.
+_CSV_KEYS = (CONF_SCHEDULE_HOURS, CONF_SEASONAL_MONTHS, CONF_FULL_CHARGE_MONTHS)
+
+
+def _field(key: str, current: dict[str, Any]) -> tuple[Any, Any]:
+    """The schema marker and selector for one option, pre-filled from `current`."""
+    default, make = _FIELDS[key]
+    if default is None:
+        empty: Any = [] if key == CONF_PACK_CURRENT_ENTITIES else ""
+        return vol.Optional(key, description={"suggested_value": current.get(key) or empty}), make()
+    value = current.get(key, default)
+    if key in _CSV_KEYS:
+        value = _as_csv(value)
+    elif key == CONF_HOLIDAY_PRESET:
+        value = normalize_preset(value)
+    elif key == CONF_PLANNER:
+        value = PLANNER_LEARNED if str(value or "").strip().lower() == PLANNER_LEARNED else PLANNER_CLASSIC
+    return vol.Required(key, default=value), make()
 
 
 def _as_csv(value: Any) -> str:

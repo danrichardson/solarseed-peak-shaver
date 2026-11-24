@@ -90,7 +90,11 @@ The config wizard walks you through three screens:
 | Off-peak battery hold | After peak ends in low-solar months, hold battery level and draw from grid | Yes |
 | Hold months | Which months solar won't refill the battery | 11,12,1,2,3 |
 
-All settings can be changed later through the integration's **Configure** button.
+All settings can be changed later through the integration's **Configure** button, which
+opens a menu of sections (Battery and sensors, Schedule, Learned planner, Third-party packs,
+Notifications, Classic planner). Saving a section changes only that section. The planner,
+the utility holidays and four learned-planner tuning values are also settings on the
+device page, and take effect within a minute without a restart.
 
 ### Step 2: Import the blueprints
 
@@ -150,7 +154,8 @@ The original planner assumes one percent of battery is worth `capacity / 100` kW
 that the house draws one fixed base load. On a real system both can be well off, and
 both drift. From 0.7.0 the integration can measure them instead.
 
-Open the integration's **Configure** dialog and set:
+Open the integration's **Configure** dialog, **Battery and sensors** (the planner itself is
+under **Learned planner**, and on the device page), and set:
 
 | Setting | What to pick |
 |---------|--------------|

@@ -327,6 +327,54 @@ command was restored, had the same blind spot: at 99 % or more (or no gauge) wit
 input it now says None instead of "discharge", so the first decision (hold at full) is
 adopted rather than a discharge that would have run the battery down overnight.
 
+## 0.9.0 additions
+
+**Options as a menu.** `Configure` opens a menu of six sections: Battery and sensors,
+Schedule, Learned planner, Third-party packs, Notifications, Classic planner (legacy). The
+keys in each are listed in `options.py` (`SECTIONS`); every option key is in exactly one.
+Saving a section stores the existing options with that section's fields replaced, so keys
+of other sections, and keys no form shows, are kept (the 0.8.x form saved wholesale and
+dropped anything it did not show). An optional sensor cleared in the form is stored as
+empty rather than left out, because an absent option falls back to the setup data. The
+battery SOC sensor and today's solar forecast, set only at setup before, are now in
+Battery and sensors. The Schedule section checks that mid-peak start, peak start and peak
+end are in order. No key was renamed; an entry saved by 0.8.x reads the same values.
+
+**Settings on the device page.** Two selects and four numbers, each one stored option
+(the config entry's options remain the only store): `Planner` (classic or learned),
+`Utility holidays` (the holiday preset), `Peak margin`, `Load quantile`, `Solar
+confidence` and `Gauge floor`, with the form's ranges. Changing one writes that option and
+nothing else. They take effect without a restart: the coordinator reads options live and
+the learned planner reads them on every minute, so a new value is used on the next minute.
+Switching the planner follows the handover rules that already applied (to learned: the
+first acting tick reads the inverter's mode and may only start a charge; to classic: a
+charge or hold is returned to battery).
+
+**When a save reloads.** There was no update listener before 0.9.0: anything read live
+took effect at once and anything read at start waited for the next restart. Now a listener
+compares the settings read once at start (`options.RELOAD_KEYS`: the battery SOC, forecast
+and production sensors, the three hours, the calculation hours, the off-peak hold switch,
+the pack sensors) with what the entry started with, in the integration's own reading (the
+hours as a list and as text are the same). If one changed the entry is reloaded, which is
+an integration restart with the usual restart rules; otherwise the entities are refreshed
+and nothing restarts. The six device-page settings are never in that list, so they never
+reload: the learned runtime, its first-tick restriction and its verification counters keep
+running.
+
+**Events after the 21:10 scoring.** The day is scored at 21:10 and the learned runtime's
+day ends at midnight, so before 0.9.0 an ignored command or a frozen stretch between the
+two fell in no graded day (the false alarm of 2026-11-23 was one). Now the scoring records
+the day's counters (`command_retries`, `commands_not_followed`, `stale_minutes`, the
+longest frozen stretch) as they stand, and at midnight whatever they gained since is kept
+as a late event with its date and the scoring time. The next graded day's summary carries
+the late events under a new key `late_events`; today's counters keep their meaning. The
+health grade counts them like today's (an ignored command is Poor, a frozen stretch over
+30 or 60 minutes Fair or Poor), with the date in the reason ("inverter ignored a command
+late on 11-27"), and the health record lists them under `late_events`. They are cleared
+once a scoring has graded a day with them, and kept if the next scoring has nothing to
+grade. A day that was not scored (a weekend, a holiday) carries nothing: those days stay
+ungraded. The record survives a restart, including one over midnight. At most 14 are kept.
+
 ## State that does not survive an HA restart
 
 Prediction snapshots, SOC checkpoints, hourly solar actuals, charge events, daily min, and

@@ -131,7 +131,7 @@ async def async_setup_entry(
         for sensor_key, desc in SENSOR_DESCRIPTIONS.items()
     ]
     # Optional third-party pack sensors (ROADMAP items 1 and 2), one pair per pack.
-    # A pack added in the options appears after the next restart.
+    # A pack added or removed in the options reloads the entry, which recreates these.
     for current_id in coordinator.pack_current_entities:
         entities.append(PackSensor(coordinator, entry, current_id, PACK_SOC))
         entities.append(PackSensor(coordinator, entry, current_id, PACK_CAPACITY))

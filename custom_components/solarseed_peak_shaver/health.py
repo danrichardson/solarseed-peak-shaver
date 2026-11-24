@@ -94,10 +94,27 @@ def grade_day(learned: dict[str, Any] | None, date: str) -> dict[str, Any] | Non
     if error is not None and abs(error) > PEAK_END_ERROR_PTS:
         fair.append("peak-end gauge off by %d points" % round(abs(error)))
 
+    # Events after an earlier day's scoring (21:10 to midnight), carried here so they land
+    # in a graded day. Graded like today's, named with their date (0.9.0).
+    late = [e for e in (summary.get("late_events") or []) if isinstance(e, dict)]
+    late_record: list[dict[str, Any]] = []
+    for event in late:
+        when = "late on %s" % str(event.get("date", "?"))[5:]
+        ignored = int(_num(event.get("commands_not_followed")))
+        stale = _num(event.get("stale_longest_min"))
+        if ignored > 0:
+            poor.append("inverter ignored a command %s" % when)
+        if stale > FROZEN_POOR_MIN:
+            poor.append("data frozen %d min %s" % (round(stale), when))
+        elif stale > FROZEN_FAIR_MIN:
+            fair.append("data frozen %d min %s" % (round(stale), when))
+        late_record.append({"date": event.get("date"), "after": event.get("after"),
+                            "commands_not_followed": ignored, "frozen_longest_min": round(stale, 1)})
+
     grade = POOR if poor else FAIR if fair else GOOD
     # The peak line is carried by peak_covered and grid_peak_kwh; reasons are the rest.
     reasons = [r for r in poor + fair if not r.startswith("peak bought")]
-    return {
+    record = {
         "date": date,
         "grade": grade,
         "reasons": reasons,
@@ -112,6 +129,9 @@ def grade_day(learned: dict[str, Any] | None, date: str) -> dict[str, Any] | Non
         "frozen_longest_min": round(frozen, 1),
         "commands_not_followed": unanswered,
     }
+    if late_record:
+        record["late_events"] = late_record
+    return record
 
 
 def status(records: list[dict[str, Any]]) -> dict[str, Any]:

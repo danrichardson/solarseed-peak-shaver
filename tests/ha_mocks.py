@@ -28,6 +28,8 @@ _HA_MODULES = [
     "homeassistant.components",
     "homeassistant.components.button",
     "homeassistant.components.sensor",
+    "homeassistant.components.select",
+    "homeassistant.components.number",
 ]
 
 
@@ -50,6 +52,10 @@ def install_ha_mocks() -> None:
     ha_const.Platform = MagicMock()
     ha_const.Platform.SENSOR = "sensor"
     ha_const.Platform.BUTTON = "button"
+    ha_const.Platform.SELECT = "select"
+    ha_const.Platform.NUMBER = "number"
+    ha_const.EntityCategory = MagicMock()
+    ha_const.EntityCategory.CONFIG = "config"
     ha_const.UnitOfEnergy = MagicMock()
     ha_const.UnitOfEnergy.KILO_WATT_HOUR = "kWh"
     ha_const.UnitOfPower = MagicMock()
@@ -124,6 +130,14 @@ def install_ha_mocks() -> None:
     ha_sensor.SensorDeviceClass.POWER = "power"
     ha_sensor.SensorStateClass = MagicMock()
     ha_sensor.SensorStateClass.MEASUREMENT = "measurement"
+
+    # Select / Number entity bases: plain classes, so the entities' own methods run in tests
+    ha_select = sys.modules["homeassistant.components.select"]
+    ha_select.SelectEntity = type("_FakeSelectEntity", (), {})
+    ha_number = sys.modules["homeassistant.components.number"]
+    ha_number.NumberEntity = type("_FakeNumberEntity", (), {})
+    ha_number.NumberMode = MagicMock()
+    ha_number.NumberMode.BOX = "box"
 
     ha_button = sys.modules["homeassistant.components.button"]
     ha_button.ButtonEntity = MagicMock

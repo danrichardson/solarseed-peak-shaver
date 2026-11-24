@@ -56,6 +56,11 @@ PUBLISH_EVERY_MIN = 5       # sensors are refreshed on a change, and at least th
 FULL_CONFIRM_MIN = 10       # minutes of "charging asked, nothing going in" that mean full
 FULL_GAUGE_PCT = 99.0       # at or above this a hold and a discharge look the same
 TOPUP_MAX_HOURS = 24        # a weekly top-up that has not finished by then is abandoned
+LATE_KEEP = 14              # days of not-yet-graded late events kept
+
+# Daily counters that matter to the health grade. What they gain between the 21:10 scoring
+# and midnight is carried into the next graded day (0.9.0) instead of falling in no day.
+LATE_COUNTERS = ("command_retries", "commands_not_followed", "stale_minutes")
 
 # Sibling sensors of a pack's current sensor ("..._current"), found by name.
 PACK_VOLTAGE_SUFFIXES = ("_voltage",)
@@ -155,6 +160,8 @@ class LearnedRuntime:
         self._packs_fails = 0
         self._shadow: dict[str, Any] = {}
         self._grid_kwh: dict[str, float] = {}
+        self._scored: dict[str, Any] | None = None    # today's counters when the day was scored
+        self._late: list[dict[str, Any]] = []         # events after an earlier day's scoring
         self._dirty = False
 
     # -----------------------------------------------------------------
@@ -189,13 +196,20 @@ class LearnedRuntime:
             if cmd.get("mode") in (MODE_CHARGE, MODE_DISCHARGE, MODE_HOLD) and age is not None and 0 <= age < 5400:
                 self._commanded, self._commanded_phase = cmd["mode"], cmd.get("phase")
                 self._commanded_at = datetime.fromisoformat(cmd["at"])
+            late = blob.get("late_events")
+            self._late = [dict(e) for e in late if isinstance(e, dict)][-LATE_KEEP:] if isinstance(late, list) else []
             day = blob.get("day") or {}
+            scored = day.get("scored") if isinstance(day.get("scored"), dict) else None
             if day.get("date") == datetime.now().strftime("%Y-%m-%d"):
                 self._day = datetime.now().date()
                 self._day_kwh = {int(h): float(v) for h, v in (day.get("kwh") or {}).items()}
                 self._day_cover = {int(h): float(v) for h, v in (day.get("cover") or {}).items()}
                 self._shadow = dict(day.get("shadow") or {})
                 self._grid_kwh = {str(k): float(v) for k, v in (day.get("grid_kwh") or {}).items()}
+                self._scored = scored
+            elif day.get("date") and scored is not None:
+                # Down over midnight after a scored day: its late events still count.
+                self._carry_late(str(day["date"]), dict(day.get("shadow") or {}), scored)
         except Exception:  # noqa: BLE001 - a bad blob must not stop the integration
             _LOGGER.exception("Could not restore learned model; starting empty")
             self.learner = Learner()
@@ -220,7 +234,9 @@ class LearnedRuntime:
                 "cover": {str(h): round(v, 3) for h, v in self._day_cover.items()},
                 "shadow": self._shadow,
                 "grid_kwh": {k: round(v, 3) for k, v in self._grid_kwh.items()},
+                "scored": self._scored,
             },
+            "late_events": self._late,
             "packs": self.packs.to_dict() if self.packs is not None else self._packs_blob,
             "saved": datetime.now().isoformat(timespec="seconds"),
         }
@@ -563,9 +579,50 @@ class LearnedRuntime:
         full = {h: v / self._day_cover[h] for h, v in self._day_kwh.items() if self._day_cover.get(h, 0) >= 0.75}
         self.profile.observe_day(c.is_tou_day(self._day), full)
         self.learner.age(float(max((today - self._day).days, 1)))
+        if self._scored is not None:
+            self._carry_late(self._day.isoformat(), self._shadow, self._scored)
         self._day = today
         self._day_kwh, self._day_cover, self._shadow, self._grid_kwh = {}, {}, {}, {}
+        self._scored = None
         self.hass.async_create_task(self.async_save())
+
+    # -----------------------------------------------------------------
+    # After the daily scoring (0.9.0): events between 21:10 and midnight
+    # -----------------------------------------------------------------
+    def mark_scored(self, day: str, now: datetime, graded: bool) -> None:
+        """The coordinator has scored `day`. Remember the counters as they stand, so what
+        they gain before midnight can be carried into the next graded day; and if this
+        scoring graded a day, the late events it included are now accounted for."""
+        snap: dict[str, Any] = {"date": day, "at": now.strftime("%H:%M")}
+        for key in LATE_COUNTERS + ("stale_longest_min",):
+            snap[key] = self._shadow.get(key, 0)
+        self._scored = snap
+        if graded and self._late:
+            _LOGGER.info("Late events from %s went into the grade for %s",
+                         ", ".join(e.get("date", "?") for e in self._late), day)
+            self._late = []
+        self._dirty = True
+        self.hass.async_create_task(self.async_save())
+
+    def _carry_late(self, day: str, shadow: dict[str, Any], scored: dict[str, Any]) -> None:
+        """At the end of a scored day, keep what the counters gained after the scoring."""
+        if scored.get("date") != day:
+            return
+        late: dict[str, Any] = {"date": day, "after": scored.get("at")}
+        for key in LATE_COUNTERS:
+            gained = float(shadow.get(key, 0) or 0) - float(scored.get(key, 0) or 0)
+            if gained > 0:
+                late[key] = round(gained, 1) if key == "stale_minutes" else int(round(gained))
+        if len(late) == 2:
+            return
+        longest = float(shadow.get("stale_longest_min", 0) or 0)
+        if longest > float(scored.get("stale_longest_min", 0) or 0):
+            # the stretch that grew after the scoring, at most the frozen minutes since then
+            late["stale_longest_min"] = round(min(longest, float(late.get("stale_minutes", 0))), 1)
+        _LOGGER.info("Carrying events after the %s scoring on %s into the next graded day: %s",
+                     late["after"], day, {k: v for k, v in late.items() if k not in ("date", "after")})
+        self._late = (self._late + [late])[-LATE_KEEP:]
+        self._dirty = True
 
     def _update_bank_full(self, gauge: float | None, grid: float | None, load: float | None) -> None:
         if gauge is None:
@@ -692,6 +749,10 @@ class LearnedRuntime:
         out.setdefault("stale_longest_min", 0)
         out.setdefault("command_retries", 0)
         out.setdefault("commands_not_followed", 0)
+        if self._late:
+            # Separate from today's counters, which keep their meaning; health.grade_day
+            # grades them with the day and names their date.
+            out["late_events"] = [dict(e) for e in self._late]
         return out
 
     # -----------------------------------------------------------------

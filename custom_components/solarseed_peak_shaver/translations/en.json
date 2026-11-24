@@ -96,6 +96,36 @@
       "health": {
         "name": "Health"
       }
+    },
+    "select": {
+      "planner": {
+        "name": "Planner",
+        "state": {
+          "classic": "Classic (legacy)",
+          "learned": "Learned"
+        }
+      },
+      "holiday_preset": {
+        "name": "Utility holidays",
+        "state": {
+          "none": "None",
+          "pge": "Portland General Electric (6 holidays)"
+        }
+      }
+    },
+    "number": {
+      "peak_margin_kwh": {
+        "name": "Peak margin"
+      },
+      "load_quantile": {
+        "name": "Load quantile"
+      },
+      "solar_confidence": {
+        "name": "Solar confidence"
+      },
+      "gauge_floor_pct": {
+        "name": "Gauge floor"
+      }
     }
   },
   "services": {
@@ -120,35 +150,90 @@
     "step": {
       "init": {
         "title": "Solarseed Peak Shaver Settings",
+        "description": "Pick a section. Saving a section changes only its own settings.",
+        "menu_options": {
+          "battery": "Battery and sensors",
+          "schedule": "Schedule",
+          "learned": "Learned planner",
+          "packs": "Third-party packs",
+          "notifications": "Notifications",
+          "classic": "Classic planner (legacy)"
+        }
+      },
+      "battery": {
+        "title": "Battery and sensors",
+        "description": "The battery, the power sensors the learned planner reads, and the solar forecast. Changing a sensor restarts the integration (as an HA restart would).",
         "data": {
-          "battery_capacity": "Total battery capacity",
-          "base_load_kw": "Average base load",
-          "min_safe_soc_kwh": "Minimum safe SOC",
-          "midpeak_start_hour": "Mid-peak start",
-          "peak_start_hour": "Peak start",
-          "peak_end_hour": "Peak end",
-          "weekdays_only": "Weekdays only",
-          "holiday_preset": "Utility holidays",
-          "notifications_enabled": "Enable notifications",
-          "notify_entity": "Notification service",
-          "charge_threshold": "Minimum charge to act on",
-          "seasonal_preservation": "Enable off-peak battery hold",
-          "seasonal_months": "Hold months",
-          "verbose_logging": "Verbose logging",
-          "solar_actual_entity": "Solar production sensor",
-          "planner": "Planner in control",
+          "battery_soc_entity": "Battery SOC sensor (kWh)",
           "gauge_entity": "Battery gauge sensor (percent)",
           "load_power_entity": "House load power sensor (inverter AC output)",
           "grid_power_entity": "Grid power sensor (inverter AC input)",
           "pv_power_entity": "Solar power sensor",
+          "solar_forecast_entity": "Solar forecast sensor (today)",
           "solar_forecast_tomorrow_entity": "Solar forecast sensor for tomorrow",
+          "solar_actual_entity": "Solar production sensor",
+          "battery_capacity": "Total battery capacity",
+          "base_load_kw": "Average base load"
+        },
+        "data_description": {
+          "battery_soc_entity": "Available battery energy in kWh. The classic planner reads it; the learned planner uses it only when no gauge sensor is set.",
+          "gauge_entity": "The percent the inverter itself reports. Leave empty to derive it from the battery SOC sensor and the capacity.",
+          "load_power_entity": "Needed for learning. Power the inverter delivers to the house.",
+          "grid_power_entity": "Needed for learning. Power the inverter takes from the grid.",
+          "pv_power_entity": "Optional. Solar power into the inverter.",
+          "solar_forecast_entity": "Solcast-shaped forecast with hourly detail (detailedHourly or detailedForecast).",
+          "solar_forecast_tomorrow_entity": "Optional. Guessed from today's forecast sensor when empty.",
+          "solar_actual_entity": "Sensor reporting cumulative solar production today in kWh (enables forecast accuracy tracking). Optional.",
+          "battery_capacity": "Total usable capacity of your battery system.",
+          "base_load_kw": "Average house draw. The classic planner's starting point, and the learned planner's load until it has history."
+        }
+      },
+      "schedule": {
+        "title": "Schedule",
+        "description": "Price windows, weekdays and utility holidays. Changing an hour restarts the integration.",
+        "data": {
+          "midpeak_start_hour": "Mid-peak start",
+          "peak_start_hour": "Peak start",
+          "peak_end_hour": "Peak end",
+          "weekdays_only": "Weekdays only",
+          "holiday_preset": "Utility holidays"
+        },
+        "data_description": {
+          "midpeak_start_hour": "When mid-peak rates begin - cheaper than peak, more expensive than off-peak.",
+          "peak_start_hour": "When the most expensive rates begin.",
+          "peak_end_hour": "When peak rates end and off-peak resumes.",
+          "weekdays_only": "On: the mid-peak and peak windows apply Monday to Friday only. Off: every day.",
+          "holiday_preset": "Days your utility prices off-peak all day. On a holiday the mid-peak and peak windows do not apply: no charge the night before for them, no weekly top-up the evening before a mid-week one, nothing graded or learned as a weekday. PGE: New Year's Day, Memorial Day, Independence Day, Labor Day, Thanksgiving and Christmas, a Saturday holiday moved to Friday and a Sunday one to Monday. None: weekdays only, as before 0.8.2."
+        }
+      },
+      "learned": {
+        "title": "Learned planner",
+        "description": "Which planner controls the inverter, and how cautious the learned one is. The planner, peak margin, load quantile, solar confidence and gauge floor are also settings on the device page.",
+        "data": {
+          "planner": "Planner in control",
           "full_charge_months": "Months that charge to full every TOU night",
           "load_quantile": "Plan for this share of days (load quantile)",
           "solar_confidence": "Share of forecast solar to count on",
           "gauge_floor_pct": "Gauge reading at which the inverter hands over to grid",
-          "handover_recovery_pct": "Gauge the inverter recharges to after a handover",
           "peak_margin_kwh": "Reserve to keep above the handover at peak end",
-          "stale_minutes": "Minutes without change that mean the battery data is frozen",
+          "handover_recovery_pct": "Gauge the inverter recharges to after a handover",
+          "stale_minutes": "Minutes without change that mean the battery data is frozen"
+        },
+        "data_description": {
+          "planner": "classic: the original planner controls the inverter and the learned planner only reports. learned: the learned planner controls the inverter. Also on the device page as the Planner select.",
+          "full_charge_months": "Comma-separated month numbers, for example 11,12,1.",
+          "load_quantile": "0.8 means the plan covers the load of 8 days out of 10. Also on the device page; a change there takes effect within a minute.",
+          "solar_confidence": "0.7 means only 70 percent of the forecast is relied on. Also on the device page; a change there takes effect within a minute.",
+          "gauge_floor_pct": "Where the inverter's own SOC Low setting hands the house to the grid. The learned planner plans energy above this. Also on the device page; a change there takes effect within a minute.",
+          "peak_margin_kwh": "The learned planner tops up in mid-peak if the battery would end peak with less than this above the handover. Also on the device page; a change there takes effect within a minute.",
+          "handover_recovery_pct": "After handing the house to the grid at the floor, the inverter grid-charges its battery back to this level and stays on grid. The learned planner counts that charge as a cost of running out in peak.",
+          "stale_minutes": "If neither the gauge nor any power sensor changes for this long while power is flowing, the readings count as missing: no learning, safe fallbacks, one alert. An idle system (every power sensor at zero) is not frozen. 0 turns the check off."
+        }
+      },
+      "packs": {
+        "title": "Third-party packs",
+        "description": "Optional capacity tracking for battery packs the inverter does not manage. Adding or removing a pack restarts the integration.",
+        "data": {
           "pack_current_entities": "Third-party pack current sensors",
           "pack_current_charge_positive": "Pack current is positive when charging",
           "bus_voltage_entity": "Battery bus voltage sensor",
@@ -157,30 +242,50 @@
           "capacity_v_low": "Capacity trend: lower bus voltage"
         },
         "data_description": {
-          "planner": "classic: the original planner controls the inverter and the learned planner only reports. learned: the learned planner controls the inverter.",
-          "gauge_entity": "The percent the inverter itself reports. Leave empty to derive it from the battery SOC sensor and the capacity.",
-          "load_power_entity": "Needed for learning. Power the inverter delivers to the house.",
-          "grid_power_entity": "Needed for learning. Power the inverter takes from the grid.",
-          "pv_power_entity": "Optional. Solar power into the inverter.",
-          "solar_forecast_tomorrow_entity": "Optional. Guessed from today's forecast sensor when empty.",
-          "full_charge_months": "Comma-separated month numbers, for example 11,12,1.",
-          "load_quantile": "0.8 means the plan covers the load of 8 days out of 10.",
-          "solar_confidence": "0.7 means only 70 percent of the forecast is relied on.",
-          "handover_recovery_pct": "After handing the house to the grid at the floor, the inverter grid-charges its battery back to this level and stays on grid. The learned planner counts that charge as a cost of running out in peak.",
-          "peak_margin_kwh": "The learned planner tops up in mid-peak if the battery would end peak with less than this above the handover.",
-          "stale_minutes": "If neither the gauge nor any power sensor changes for this long while power is flowing, the readings count as missing: no learning, safe fallbacks, one alert. An idle system (every power sensor at zero) is not frozen. 0 turns the check off.",
-          "pack_current_entities": "Optional. One current sensor per pack the inverter does not manage. Adds a charge estimate (amp-hours from the last full charge) and a capacity trend sensor per pack after a restart. Voltage and percent sensors of the same pack are found by name (..._voltage, ..._battery).",
+          "pack_current_entities": "Optional. One current sensor per pack the inverter does not manage. Adds a charge estimate (amp-hours from the last full charge) and a capacity trend sensor per pack. Voltage and percent sensors of the same pack are found by name (..._voltage, ..._battery).",
           "pack_current_charge_positive": "Turn off if the pack reports discharge as a positive current.",
           "bus_voltage_entity": "Optional. Empty: the mean of the packs' own voltage sensors.",
           "pack_capacity_ah": "Used to turn amp-hours since full into a percent.",
           "capacity_v_high": "Each discharge from full is measured from where the bus falls through this voltage.",
-          "capacity_v_low": "... to where it falls through this one. Pick two that most deep evenings reach.",
-          "holiday_preset": "Days your utility prices off-peak all day. On a holiday the mid-peak and peak windows do not apply: no charge the night before for them, no weekly top-up the evening before a mid-week one, nothing graded or learned as a weekday. PGE: New Year's Day, Memorial Day, Independence Day, Labor Day, Thanksgiving and Christmas, a Saturday holiday moved to Friday and a Sunday one to Monday. None: weekdays only, as before 0.8.2."
+          "capacity_v_low": "... to where it falls through this one. Pick two that most deep evenings reach."
+        }
+      },
+      "notifications": {
+        "title": "Notifications",
+        "description": "Where the daily report and alerts go.",
+        "data": {
+          "notifications_enabled": "Enable notifications",
+          "notify_entity": "Notification service",
+          "verbose_logging": "Verbose logging"
+        },
+        "data_description": {
+          "notifications_enabled": "Daily report, review notice, and alerts (frozen data, inverter not responding).",
+          "notify_entity": "A notify service, for example notify.mobile_app_yourphone. Empty: no notifications.",
+          "verbose_logging": "Write the classic planner's simulation table to the log at warning level."
+        }
+      },
+      "classic": {
+        "title": "Classic planner (legacy)",
+        "description": "Settings only the classic planner uses. It is kept for comparison and as a fallback; new features go into the learned planner.",
+        "data": {
+          "min_safe_soc_kwh": "Minimum safe SOC",
+          "charge_threshold": "Minimum charge to act on",
+          "schedule_hours": "Calculation hours",
+          "seasonal_preservation": "Enable off-peak battery hold",
+          "seasonal_months": "Hold months"
+        },
+        "data_description": {
+          "min_safe_soc_kwh": "The classic planner's floor; it plans never to go below this.",
+          "charge_threshold": "The classic planner ignores a charge smaller than this.",
+          "schedule_hours": "Hours the classic planner calculates the night charge, comma-separated, for example 3,4,5,6.",
+          "seasonal_preservation": "Classic planner only: after peak in the hold months, hold the battery and run the house from the grid. The learned planner decides holds itself.",
+          "seasonal_months": "Comma-separated month numbers, for example 11,12,1,2,3."
         }
       }
     },
     "error": {
-      "invalid_voltage_range": "The lower voltage must be below the upper voltage."
+      "invalid_voltage_range": "The lower voltage must be below the upper voltage.",
+      "invalid_time_range": "Rate periods must be in order: mid-peak < peak < end"
     }
   },
   "selector": {
@@ -188,6 +293,12 @@
       "options": {
         "none": "None",
         "pge": "Portland General Electric (6 holidays)"
+      }
+    },
+    "planner": {
+      "options": {
+        "classic": "Classic (legacy)",
+        "learned": "Learned"
       }
     }
   }

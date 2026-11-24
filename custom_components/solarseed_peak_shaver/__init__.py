@@ -20,7 +20,33 @@ from .store import PeakShaverStore
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BUTTON]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.BUTTON, Platform.SELECT, Platform.NUMBER]
+
+
+async def async_options_updated(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Stored options changed (an options section was saved, or a settings entity set).
+
+    Most settings are read live, so nothing needs restarting: the entities are refreshed
+    and the learned planner uses the new value on its next minute. Only a change to a
+    setting read once at start (sensors with listeners, hours with timers, the packs)
+    reloads the entry, which is a restart of the integration with the usual restart rules.
+    The six settings entities never reload it.
+    """
+    coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id)
+    if coordinator is None:
+        return
+    try:
+        now = coordinator.setup_signature()
+        changed = sorted(k for k, v in now.items() if coordinator.started_with.get(k) != v)
+    except Exception:  # noqa: BLE001 - an odd stored value is not a reason to restart
+        _LOGGER.exception("Could not compare the settings read at start")
+        changed = []
+    if changed:
+        _LOGGER.info("Settings read at start changed (%s); reloading", ", ".join(changed))
+        await hass.config_entries.async_reload(entry.entry_id)
+        return
+    if hasattr(coordinator, "async_update_listeners"):
+        coordinator.async_update_listeners()
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -29,6 +55,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await store.async_load()
 
     coordinator = PeakShaverCoordinator(hass, entry, store)
+    coordinator.started_with = coordinator.setup_signature()
 
     await coordinator.async_config_entry_first_refresh()
 
@@ -55,6 +82,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception:  # noqa: BLE001
             _LOGGER.exception("Learned planner timer could not start; continuing with the classic planner only")
             coordinator.learned = None
+
+    # Options saved from the menu or the settings entities (0.9.0). There was no listener
+    # before: a change to a setting read at start waited for the next restart.
+    entry.async_on_unload(entry.add_update_listener(async_options_updated))
 
     # Register recalculate service (once, for any number of config entries)
     if not hass.services.has_service(DOMAIN, SERVICE_RECALCULATE):

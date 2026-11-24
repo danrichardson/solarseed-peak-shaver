@@ -28,8 +28,8 @@ behavior and `docs/analysis-plan.md` for the current overhaul effort.
 | `custom_components/solarseed_peak_shaver/coordinator.py` | All logic: scheduling, simulation, events, perf tracking, scoring, feedback loop |
 | `.../store.py` | Persistent scorecard history (`.storage/solarseed_peak_shaver_history` on HA, 90 days max) + rolling averages + CSV export |
 | `.../__init__.py` | Setup + services `recalculate`, `performance_report`, `export_history` |
-| `.../sensor.py`, `button.py`, `diagnostics.py` | Entities and HA diagnostics download |
-| `.../config_flow.py`, `strings.json`, `translations/en.json` | 3-screen config + options flow |
+| `.../sensor.py`, `button.py`, `select.py`, `number.py`, `diagnostics.py` | Entities (select and number are settings that write one option) and HA diagnostics download |
+| `.../config_flow.py`, `options.py`, `strings.json`, `translations/en.json` | 3-screen config + options menu; `options.py` says which key is in which section and when a save reloads |
 | `blueprints/automation/solarseed_peak_shaver/` | charge_start / charge_stop / preserve_start blueprints |
 | `tools/analyze_performance.py` | Stdlib-only SPC analysis of `export_history` CSVs |
 | `tools/claude_analysis_prompt.md` | Prompt templates for LLM analysis of exports |
