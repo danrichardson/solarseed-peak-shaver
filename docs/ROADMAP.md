@@ -1,8 +1,9 @@
-# Roadmap
+# Feature notes
 
-Feature ideas that came out of the winter 2026 work, roughly in order. Each links to the
-finding behind it. Nothing here is committed to a release yet. Current state and
-operating notes: `docs/HANDOFF.md`.
+The plan is `ROADMAP.md` at the repository root; this file holds the detailed notes behind
+its chunks and its idea shelf. Code comments and other docs refer to these item numbers
+("ROADMAP item 7"), so do not renumber. Items 3, 4 and 5 shipped in 0.8.0, items 1 and 2
+as the optional pack sensors in 0.8.0. Current state and operating notes: `docs/HANDOFF.md`.
 
 ## Next (0.8.x)
 

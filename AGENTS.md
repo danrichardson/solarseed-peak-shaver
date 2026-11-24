@@ -17,8 +17,9 @@ sensor `sensor.available_battery_kwh`, Solcast forecast, PGE (Oregon) Time of Da
 Battery capacity configured 23.5 kWh. See `docs/how-it-works.md` for the full runtime
 behavior and `docs/analysis-plan.md` for the current overhaul effort.
 
-**Picking up the winter 2026 work? Start with `docs/HANDOFF.md`.** It has the current
-state, the one temporary change on the live box, and the next steps.
+**What to build next is in `ROADMAP.md`** (say `work on the next chunk in ROADMAP.md`).
+**How finished work is checked is in `REVIEW.md`** (say `review the last chunk per REVIEW.md`).
+`docs/HANDOFF.md` has the current state of the live box and the history.
 
 ## Repo layout
 

@@ -1,5 +1,9 @@
 # Handoff - winter 2026 analysis and rework
 
+**From 2026-11-23 the plan is `ROADMAP.md` at the repository root** (chunks P1 to P6, to
+version 1.0) and reviews follow `REVIEW.md`. The list "What is left to develop" below is
+kept as the source those chunks were written from. This file remains the state record.
+
 ## RESUME HERE - Monday 2026-11-23 night: 0.8.1 is released and running; what is left
 
 **State (checked read-only on the evening of 11-23).**
