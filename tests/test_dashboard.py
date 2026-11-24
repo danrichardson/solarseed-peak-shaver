@@ -489,7 +489,7 @@ class TestTemplatesRender:
             check_text(text)
         assert out[0].startswith("The learned planner has not decided anything yet.")
         assert out[1].startswith("**No peak forecast:** not available.")
-        assert out[2] == "No day graded yet. Each TOU day is graded at 21:10 from the grid meter."
+        assert out[2] == "No day graded yet. Each TOU day is graded ten minutes after peak end from the grid meter."
         assert out[3].startswith("No peak end recorded yet.")
 
     def test_a_short_afternoon_with_a_week_of_grades(self):
@@ -542,5 +542,79 @@ class TestTemplatesRender:
         _, _, week, pred = render_all(ha_world(coord))
         check_text(week)
         check_text(pred)
-        assert "| Wed 11-18 | Good | 0.0 kWh | $0.00 |" in week
+        # a missing figure is a dash, never a 0 that reads as "nothing bought"
+        assert "| Wed 11-18 | Good | - | - |" in week
+        assert "$0.00 of grid energy" in week                       # the total counts only the days that have one
         assert "| Wed 11-18 | - | 11 % | - |" in pred
+
+    def test_a_graded_day_shows_its_figures(self):
+        rt, coord, _ = planner_at(at(TUESDAY, 10), 70)
+        coord.store._data["days"] = invented_days(coord, n=1, reasons=False)
+        _, _, week, _ = render_all(ha_world(coord))
+        assert "| Mon 02-15 | Good | 0.0 kWh | $0.00 |" in week
+
+
+# --- the conditional cards, with the frontend's rules ----------------------------------------
+#
+# home-assistant/frontend, src/panels/lovelace/common/validate-condition.ts, checkStateCondition:
+# an entity that does not exist reads as "unknown"; `state` / `state_not` are a string or a list.
+
+
+def condition_ok(cond: dict, world: dict) -> bool:
+    state = world[cond["entity"]][0] if cond["entity"] in world else "unknown"
+    if "state" in cond:
+        want = cond["state"]
+        return state in want if isinstance(want, list) else state == want
+    if "state_not" in cond:
+        avoid = cond["state_not"]
+        return state not in avoid if isinstance(avoid, list) else state != avoid
+    return True
+
+
+def shown(card: dict, world: dict) -> bool:
+    return all(condition_ok(c, world) for c in card["conditions"])
+
+
+def conditionals() -> dict[str, dict]:
+    """The conditional cards by what they wrap: heading text, tile name or card type."""
+    out = {}
+    for c in cards(load_dashboard()):
+        if c["type"] != "conditional":
+            continue
+        inner = c["card"]
+        key = inner.get("name") or inner["type"]
+        if inner["type"] == "vertical-stack":
+            key = inner["cards"][0]["heading"]
+        out[key] = c
+    return out
+
+
+class TestConditions:
+    def test_the_dashboard_promises_no_fixed_hour(self):
+        text = DASHBOARD.read_text(encoding="utf-8")
+        assert "21:10" not in text and "severity" not in text
+
+    def test_pack_section_hides_without_a_pack(self):
+        pack = conditionals()["Pack capacity"]
+        entity = pack["conditions"][0]["entity"]
+        assert not shown(pack, {})                                   # no packs configured: entity absent
+        assert not shown(pack, {entity: ("unknown", None)})          # configured, no clean run-down yet
+        assert not shown(pack, {entity: ("unavailable", None)})
+        assert shown(pack, {entity: ("86.3", None)})
+
+    def test_forecast_gauge_hides_while_unknown(self):
+        gauge = conditionals()["Expected at peak end"]
+        entity = gauge["conditions"][0]["entity"]
+        for state in ("unknown", "unavailable"):
+            assert not shown(gauge, {entity: (state, None)})
+        assert not shown(gauge, {})
+        assert shown(gauge, {entity: ("17", None)})
+
+    def test_the_mode_tile_says_shadow_under_classic(self):
+        c = conditionals()
+        asked, shadow = c["Inverter mode asked for"], c["Shadow plan (not in control)"]
+        planner = asked["conditions"][0]["entity"]
+        assert planner.startswith("select.") and asked["card"]["entity"] == shadow["card"]["entity"]
+        assert shown(asked, {planner: ("learned", None)}) and not shown(shadow, {planner: ("learned", None)})
+        assert shown(shadow, {planner: ("classic", None)}) and not shown(asked, {planner: ("classic", None)})
+        assert not shown(asked, {})                                  # select missing: never claim control

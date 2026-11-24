@@ -18,7 +18,8 @@
 #   gauge  your battery percent sensor, the one chosen as the battery gauge in the
 #          integration's Battery and sensors settings (this one is a Bluetti AC500's);
 #   packs  only if you track third-party packs: their "Ah Between ..." sensors from the
-#          device page. With none configured the pack section stays hidden.
+#          device page. The pack section stays hidden while the first one does not exist
+#          or has no reading yet (Home Assistant reads a missing entity as `unknown`).
 solarseed_ids: &ids
   plan: &plan sensor.solarseed_peak_shaver_learned_plan
   summary: &summary sensor.solarseed_peak_shaver_plan_summary
@@ -65,9 +66,26 @@ views:
 
               <small>Price now: {{ state_attr(ids.plan, 'price_period') }}{% if price is number %} at ${{ '%.4f' | format(price) }}/kWh{% endif %}, {{ state_attr(ids.plan, 'tariff') }}{% if season %} ({{ season }}){% endif %}. In control: the {{ state_attr(ids.plan, 'planner_in_control') }} planner.</small>
               {%- endif %}
-          - type: tile
-            entity: *plan
-            name: Inverter mode asked for
+          # The Learned Plan's mode is what the inverter is asked for only while the learned
+          # planner is in control; under classic it is a shadow, and the tile says so.
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: *planner
+                state: learned
+            card:
+              type: tile
+              entity: *plan
+              name: Inverter mode asked for
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: *planner
+                state_not: learned
+            card:
+              type: tile
+              entity: *plan
+              name: Shadow plan (not in control)
           - type: tile
             entity: *planner
             name: Planner
@@ -86,17 +104,14 @@ views:
               - condition: state
                 entity: *forecast
                 state_not: unavailable
+            # No colour bands: the floor is an option (0 to 50 %), and a gauge cannot read
+            # it, so a fixed green would contradict "not covered". The card below says which.
             card:
               type: gauge
               entity: *forecast
               name: Expected at peak end
               min: 0
               max: 100
-              needle: true
-              severity:
-                green: 15
-                yellow: 6
-                red: 0
           - type: markdown
             ids: *ids
             content: |-
@@ -144,14 +159,16 @@ views:
               {%- set ids = config.ids -%}
               {%- set days = state_attr(ids.health, 'last_7_days') or [] -%}
               {%- if days | count == 0 -%}
-              No day graded yet. Each TOU day is graded at 21:10 from the grid meter.
+              No day graded yet. Each TOU day is graded ten minutes after peak end from the grid meter.
               {%- else -%}
               {%- set ns = namespace(cost=0) -%}
               | Day | Grade | Peak grid | Cost |
               |:--|:--|--:|--:|
               {%- for r in days | reverse %}
-              {%- set ns.cost = ns.cost + (r.get('cost_usd') or 0) %}
-              | {{ strptime(r.get('date'), '%Y-%m-%d').strftime('%a %m-%d') }} | {{ (r.get('grade') or '?') | capitalize }} | {{ '%.1f' | format(r.get('grid_peak_kwh') or 0) }} kWh | ${{ '%.2f' | format(r.get('cost_usd') or 0) }} |
+              {%- set cost = r.get('cost_usd') %}
+              {%- set grid = r.get('grid_peak_kwh') %}
+              {%- if cost is number %}{% set ns.cost = ns.cost + cost %}{% endif %}
+              | {{ strptime(r.get('date'), '%Y-%m-%d').strftime('%a %m-%d') }} | {{ (r.get('grade') or '?') | capitalize }} | {{ ('%.1f' | format(grid)) ~ ' kWh' if grid is number else '-' }} | {{ '$' ~ ('%.2f' | format(cost)) if cost is number else '-' }} |
               {%- endfor %}
               {%- set counts = state_attr(ids.health, 'counts') or {} %}
 
@@ -178,7 +195,7 @@ views:
             heading: Predicted against what happened
             icon: mdi:target
           - type: history-graph
-            title: Battery against the peak-end forecast, 7 days
+            title: Battery against the running peak-end forecast, 7 days
             hours_to_show: 168
             entities:
               - entity: *gauge
@@ -202,14 +219,19 @@ views:
               {%- endfor %}
               {%- set bias = state_attr(ids.health, 'peak_end_bias_points') %}
 
-              <small>Predicted: the gauge expected at peak end, worked out at mid-peak start. Off by: predicted minus actual{% if bias is number %}; {{ '%+.1f' | format(bias) }} points on average{% endif %}.</small>
+              <small>Predicted: the gauge expected at peak end, worked out at mid-peak start. Off by: predicted minus actual{% if bias is number %}; {{ '%+.1f' | format(bias) }} points on average{% endif %}. The graph's forecast line is the running estimate: it moves through the day and turns to tomorrow's peak after peak end; the table holds the mid-peak-start value.</small>
               {%- endif %}
 
-      # 5. Pack capacity trend, when packs are configured
+      # 5. Pack capacity trend, when packs are configured. The frontend reads an entity that
+      #    does not exist as `unknown`, so both states have to be excluded, or an install
+      #    with no packs shows an empty chart.
       - type: grid
         cards:
           - type: conditional
             conditions:
+              - condition: state
+                entity: *pack1
+                state_not: unknown
               - condition: state
                 entity: *pack1
                 state_not: unavailable

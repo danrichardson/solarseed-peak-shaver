@@ -470,21 +470,28 @@ and the third-party packs' "Ah Between" sensors. It answers, in this order:
 
 1. **Now:** the Plan Summary sentence, the planner's reason for what it is doing, the
    price period and price now, the tariff, and a warning while battery data is frozen;
-   tiles for the mode asked of the inverter and the planner select.
-2. **The next peak:** a gauge of the Peak End Forecast (hidden while it is unknown), and
+   tiles for the Learned Plan's mode (named "Inverter mode asked for" while the learned
+   planner is in control, "Shadow plan (not in control)" under classic) and the planner
+   select.
+2. **The next peak:** a gauge of the Peak End Forecast (hidden while it is unknown; no
+   colour bands, since the floor is an option and the card beside it says covered or not), and
    whether that peak is covered: the expected gauge at peak end and the kWh above the
    floor, or that the floor is expected first; the energy above the floor now; what
    running short would cost (`shortfall_cost_usd`, `handover_cost_usd`); or why there is
    no forecast.
 3. **The last seven days:** the Health tile and a table of the last seven graded days from
    the Health sensor's `last_7_days`: grade, grid kWh in peak and `cost_usd` (dollars from
-   the health records, never from a constant in a card), the counts and the week's total,
-   why each day that was not Good was not, and the review reasons.
+   the health records, never from a constant in a card; a missing figure is a dash, not
+   0), the counts and the week's total, why each day that was not Good was not, and the
+   review reasons.
 4. **Predicted against what happened:** a 7-day history graph of the battery gauge with the
-   Peak End Forecast, and a table of each graded day's prediction made at mid-peak start
+   running Peak End Forecast (it moves through the day and turns to tomorrow's peak after
+   peak end), and a table of each graded day's prediction made at mid-peak start
    (`pred_gauge_peak_end`) against the gauge at peak end, with the error and its average.
-5. **Pack capacity:** shown only when the first pack's capacity sensor exists: a
-   statistics graph (weekly mean, 180 days) of each pack's Ah per clean run-down.
+5. **Pack capacity:** shown only while the first pack's capacity sensor exists and has a
+   reading (the frontend reads a missing entity as `unknown`, so the condition excludes
+   both `unknown` and `unavailable`): a statistics graph (weekly mean, 180 days) of each
+   pack's Ah per clean run-down.
 
 `docs/dashboard.png` shows it with invented numbers. It is drawn by a local script, not
 photographed in Home Assistant: the card order, options and markdown templates are the

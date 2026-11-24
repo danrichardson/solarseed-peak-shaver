@@ -174,3 +174,8 @@ One line per review, newest last.
   hours cannot be typed) were a boundary bug and a missed criterion, each under an hour to
   fix. Writing a limitation down does not make it a decision; and any "today's" default
   that runs after peak end is planning tomorrow, so walk it with tomorrow's hours.
+- 2026-11-24 (P4): a card is a reading too. The pack section's condition assumed a missing
+  entity reads `unavailable`; the frontend's `checkStateCondition` reads it as `unknown`,
+  so the section showed on every install without packs. For a frontend rule, read the
+  frontend source (`validate-condition.ts`, the card's `.ts`), not memory of the docs; and
+  an `or 0` in a template is the same 0-for-unknown bug as in a sensor.

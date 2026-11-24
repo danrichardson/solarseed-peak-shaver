@@ -1,11 +1,11 @@
 # Solarseed Peak Shaver roadmap: one chunk at a time, to 1.0
 
-**Next, paste this** (P4 built on 2026-11-24 in f443a46, on P3; it needs a fresh review
-before 0.9.1 and 0.9.2 ship together. 0.9.0 still has to be on the box before Wednesday
-11-25 evening for Thanksgiving):
+**Next, paste this** (P4 reviewed 2026-11-24, go after small fixes, made on `chunk-P4`;
+0.9.1 and 0.9.2 ship together when Dan says so, nothing in them has to reach the box before
+P5. 0.9.0 still has to be on the box before Wednesday 11-25 evening for Thanksgiving):
 
 ```
-review the last chunk per REVIEW.md
+work on the next chunk in ROADMAP.md
 ```
 
 That sentence and this path are all an agent gets. The other half is [REVIEW.md](REVIEW.md).
@@ -362,6 +362,15 @@ doing, and that `tools/analyze_performance.py` prices with its own constants.
 **Defaults:** solar forecast stays Solcast-shaped (`detailedHourly` / `detailedForecast`);
 say so plainly in the form instead of building a second forecast adapter.
 
+**From the P4 review:** a new install should start on `learned` (this chunk's first line),
+so the dashboard's "Shadow plan (not in control)" tile is the exception, not the first
+thing a stranger sees. The dashboard has still never been pasted into a real Home
+Assistant; if P5 gets a browser on a box, paste `dashboards/solarseed.yaml` and check, in
+this order: the markdown cards render (`config.ids`), the top-level `solarseed_ids` key
+survives a save, no card shows "Entity not available", the pack section is hidden with no
+packs (outside edit mode; conditional cards always show while editing), and the heading
+cards exist (HA 2024.10+). Say in the README which HA version the dashboard needs.
+
 **Dan should look at:** a walk through "add integration" on a scratch entry, if he is
 willing to remove it afterwards; otherwise the reviewer reads every form string.
 
@@ -628,3 +637,35 @@ then the reviewer's `Review:` line.
   evening and its absence on Saturday; the 7-day table against the daily messages; the
   history graph after a few days; that no card shows "Entity not available" or a template
   error. Taste: Dan's reaction verbatim into REVIEW.md section 3.
+  Review (2026-11-24, go after small fixes, made): checked f443a46 and 7b48ec8 against
+  930954d. Read `outlook.py`, the dashboard file, `test_dashboard.py` and the runtime,
+  sensor, health and docs diffs whole; viewed `docs/dashboard.png`. 653 passed, 7 skipped;
+  690 with voluptuous and jinja2; strings.json equals en.json; `const.py` and
+  `manifest.json` agree; the diff is ASCII; `p4_replay_compare.py` gives identical stdout
+  (45 lines, 83 events) P3 against P4; the non-finite fix matches the coordinator's
+  `isfinite` readers and the test feeds nan, inf, -inf, empty and unknown through the
+  real tick. Walked: a mid-peak shortfall (the "tops up before peak" line shows only in
+  mid-peak, since `shortfall_kwh` is set there alone), a weekend, Thanksgiving, classic in
+  control, a graded day with no grid readings but frozen data (graded Poor with 0.0 kWh and
+  $0.00, as the daily message already says it; a health question for the data review, not
+  the card's). Fixed (one commit, `P4 review:`): the pack section's condition had only
+  `state_not: unavailable`, and the frontend's `checkStateCondition` reads a missing entity
+  as `unknown`, so an install with no packs showed an empty chart; now both states are
+  excluded (also hides a configured pack before its first run-down). The mode tile said
+  "Inverter mode asked for" under classic, when the Learned Plan is a shadow; it is now a
+  conditional pair on the planner select. The gauge's fixed green at 15 contradicted "not
+  covered" with a floor above 15 (the option runs to 50); the colour bands and needle are
+  gone, the card beside says covered or not. "Graded at 21:10" became "ten minutes after
+  peak end" (the scoring is tariff-derived). A record without `cost_usd` or
+  `grid_peak_kwh` showed "$0.00" and "0.0 kWh"; now a dash, and the total counts only days
+  that have one. The history graph is titled the running forecast and the small print says
+  the table holds the mid-peak-start value. Tests for each with the frontend's condition
+  rules; the drawing script follows the file (missing entity reads unknown, no needle or
+  bands) and the picture is redrawn. 657 passed, 8 skipped; 695 fully enabled. Not
+  verified: any card in a real Home Assistant frontend (no HA on this machine, no browser
+  in this session; the picture is a Pillow imitation and says so). Believed from the
+  frontend source, not seen: `config.ids` in markdown templates, unknown top-level and
+  card keys kept on save (the markdown card's visual editor may fall back to YAML for the
+  `ids` key, cosmetic), `<small>` and tables in the markdown card, `strptime` and
+  `selectattr(..., 'number')` in HA's sandbox. Owner taste inspection pending. Nothing in
+  0.9.2 needs to reach the box before P5.
