@@ -1,15 +1,11 @@
 # Solarseed Peak Shaver roadmap: one chunk at a time, to 1.0
 
-**Next, paste this** (P5 reviewed 2026-11-24, go, on `chunk-P5` at its `P5 review:` commit;
-0.9.1 to 0.9.3 ship together as 0.9.3 when Dan says so, and that one install also puts the
-holidays on the box before Wednesday 11-25 evening for Thanksgiving. P6 waits for Dan's
-word and a data review on 0.9.x; the live checks it owes are listed under P6):
+**Current state: 0.9.3 is released and verified on the live box (2026-11-24).**
 
-```
-ship 0.9.3
-```
+P1-P5 are installed. Owner inspection of the new UI remains open. The next data review
+is from 2026-11-30; P6 still requires that review and Dan's word. No next build is queued.
 
-That sentence and this path are all an agent gets. The other half is [REVIEW.md](REVIEW.md).
+Implementation instructions are here; the other half is [REVIEW.md](REVIEW.md).
 Method: `~/src/AGENTS-plan-and-review.md`. Set up 2026-11-23.
 
 ## 1. How to run this file
@@ -78,11 +74,11 @@ each.
 
 | # | Chunk | Release | Needs | Review | Status |
 |---|---|---|---|---|---|
-| P1 | Thanksgiving: holidays, and the false alarm at full | 0.8.2 | care | yes | Built 2026-11-23, `chunk-P1` 745c6b2 |
-| P2 | Settings you can find | 0.9.0 | plumbing, care | yes | Built 2026-11-24, `chunk-P2` 95761f0 |
-| P3 | Tariff as data | 0.9.1 | care | yes | Built 2026-11-24, `chunk-P3` eb18a74 |
-| P4 | The dashboard | 0.9.2 | taste | yes | Built 2026-11-24, `chunk-P4` f443a46 |
-| P5 | A stranger can install it | 0.9.3 | care, taste | yes | Built 2026-11-24, `chunk-P5` 2851170 |
+| P1 | Thanksgiving: holidays, and the false alarm at full | 0.8.2 | care | yes | Done 2026-11-24, live `v0.9.3`; `chunk-P1` 745c6b2 |
+| P2 | Settings you can find | 0.9.0 | plumbing, care | yes | Done 2026-11-24, live `v0.9.3`; `chunk-P2` 95761f0 |
+| P3 | Tariff as data | 0.9.1 | care | yes | Done 2026-11-24, live `v0.9.3`; `chunk-P3` eb18a74 |
+| P4 | The dashboard | 0.9.2 | taste | yes | Done 2026-11-24, live `v0.9.3`; `chunk-P4` f443a46 |
+| P5 | A stranger can install it | 0.9.3 | care, taste | yes | Done 2026-11-24, live `v0.9.3`; `chunk-P5` 2851170 |
 | P6 | Ready to be seen | 1.0.0 | taste, Dan's word first | yes | |
 | P7 | Refill | | | | |
 
@@ -387,10 +383,14 @@ is rewritten in present tense from the code, not as layers of additions; `HACS.m
 `hacs.json` and the manifest meet the HACS default-repository checks; the changelog covers
 0.7 to 1.0; no household detail anywhere in the tracked tree (search for it); version 1.0.0.
 
-**From the P5 review** (nothing in 0.9.3 has been seen in a Home Assistant UI; these are
-owed, read-only unless Dan says otherwise, before or with 1.0): on the box, `/api/events`
-lists the three `solarseed_peak_shaver_*` events with a listener count of at least 1 and
-Settings, System, Repairs is empty ten minutes after the 0.9.3 restart; the four first-time
+**Live API checks completed 2026-11-24:** HACS and diagnostics agree on 0.9.3, the entry
+is loaded, Health is good, the learned planner is in control, and all three events have
+one listener. After the first ten-minute setup-check interval there are no Solarseed
+repair issues or setup problems and no Solarseed error-level logs. An unrelated existing
+repair was left alone. The two new sensors are available.
+
+**UI checks still owed** (read-only unless Dan says otherwise, before or with 1.0): the
+four first-time
 screens seen once on a scratch entry (the optional off-peak price box, a refused tariff with
 its `{prices_detail}` text, load without grid refused), then the entry deleted; one blueprint
 imported from its README URL; a repair issue's text with its `- ` lines rendered (make one by
@@ -815,3 +815,12 @@ then the reviewer's `Review:` line.
   and `test_integration_structure.py` holds the minimum at 2024.12.0 or later. The P2 Log's
   "2024.11+" and this chunk's "2024.11.0" above are the record of the mistake. The
   blueprints' own `min_version` 2024.8.0 stands (the `action:` key). Verdict unchanged: go.
+
+- 2026-11-24, ship and live verification. Released v0.9.3 at f35d36e, bundling the
+  reviewed P3-P5 work and including P1/P2. The full suite passed 756 tests; CI passed
+  Python 3.12/3.13, hassfest and HACS validation. The owner installed through HACS and
+  restarted; read-only checks verified the installed code version, loaded entry, good
+  Health, learned control, new sensors, three event listeners and no Solarseed repairs
+  or errors after the setup-check interval. The current calendar identifies Thanksgiving.
+  Native UI inspection, a real blueprint import and the data review remain open; P6
+  was not started. Raw evidence is local and ignored; no household readings are recorded here.

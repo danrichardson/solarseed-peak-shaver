@@ -4,7 +4,35 @@
 version 1.0) and reviews follow `REVIEW.md`. The list "What is left to develop" below is
 kept as the source those chunks were written from. This file remains the state record.
 
-## RESUME HERE - Monday 2026-11-23 night: 0.8.1 is released and running; what is left
+## RESUME HERE - 2026-11-24: 0.9.3 is released, installed and verified
+
+- **Release.** `v0.9.3` points to `f35d36e`, the accepted P5 compatibility correction.
+  P1-P5 are included. The full suite passed 756 tests; Python 3.12/3.13, hassfest and
+  HACS CI all passed. Later documentation-only commits do not change that release.
+- **Installed code.** HACS installed/latest is `v0.9.3`, diagnostics reports `0.9.3`,
+  and the config entry is `loaded` on HA 2026.11.2. The owner accepted the HACS update
+  and restarted; the coordinator performed read-only checks.
+- **Live checks.** Health is `good`; the learned planner is in control; battery data is
+  not stale; the reported inverter mode agrees with the learned plan. Plan Summary and
+  Peak End Forecast are available. Each of the three integration events has one listener.
+  After the first ten-minute setup-check interval, there are no Solarseed repair issues,
+  diagnostics setup problems, or Solarseed error-level logs. The startup log safely skips
+  a missing battery reading, then records a normal no-charge calculation. An unrelated
+  existing repair was not changed. No settings, automations or inverter modes were written.
+- **Holiday rollout.** The live calendar identifies Thanksgiving on 2026-11-26. The
+  Wednesday-night and Thursday behavior is covered by tests and still awaits its first
+  real holiday; do not claim that future behavior has been observed.
+- **Still open.** Owner inspection of the options, tariff, tuning entities and dashboard;
+  a scratch first-install flow and real blueprint import when explicitly authorized.
+  The published image is an invented-data preview, not a native HA screenshot.
+- **Next.** The data review from 2026-11-30 follows `docs/tuning-log.md`, excluding
+  11-22, 11-23 and 11-26. P6 still needs that review and Dan's word; do not start it now.
+- **Access.** Ask for a fresh temporary HA administrator for another session. Never
+  store its password; remove the ignored token cache when the checks finish. Raw live
+  evidence stays under ignored `analysis/`; do not publish household readings.
+- Untracked and not ours, leave alone: `docs/ac500-ui-screens.zip`, `docs/whitepaper/`.
+
+## Previous state - Monday 2026-11-23 night: 0.8.1 was released and running
 
 **State (checked read-only on the evening of 11-23).**
 - **Released.** `v0.8.1` is commit `c351c84` on `main`. It was merged, tagged and published as a
