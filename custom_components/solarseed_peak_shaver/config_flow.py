@@ -10,15 +10,16 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 
-from .holidays import HOLIDAY_PRESETS, normalize_preset
+from .holidays import HOLIDAY_PRESET_CUSTOM, HOLIDAY_PRESETS, normalize_preset, preset_rules_text
 from .options import (
     SECTION_BATTERY,
     SECTION_CLASSIC,
     SECTION_LEARNED,
     SECTION_NOTIFICATIONS,
     SECTION_PACKS,
-    SECTION_SCHEDULE,
+    SECTION_TARIFF,
     SECTIONS,
+    check_tariff,
     merge_section,
 )
 from .const import (
@@ -33,16 +34,21 @@ from .const import (
     CONF_GAUGE_ENTITY,
     CONF_GAUGE_FLOOR,
     CONF_GRID_POWER_ENTITY,
+    CONF_HOLIDAY_DATES,
     CONF_HOLIDAY_PRESET,
+    CONF_HOLIDAY_RULES,
     CONF_LOAD_POWER_ENTITY,
     CONF_LOAD_QUANTILE,
+    CONF_MIDPEAK_PRICE,
     CONF_MIDPEAK_START,
     CONF_NOTIFICATIONS_ENABLED,
     CONF_NOTIFY_ENTITY,
+    CONF_OFFPEAK_PRICE,
     CONF_PACK_CAPACITY_AH,
     CONF_PACK_CURRENT_CHARGE_POSITIVE,
     CONF_PACK_CURRENT_ENTITIES,
     CONF_PEAK_END,
+    CONF_PEAK_PRICE,
     CONF_PEAK_START,
     CONF_PLANNER,
     CONF_PV_POWER_ENTITY,
@@ -57,6 +63,7 @@ from .const import (
     CONF_SOLAR_FORECAST_ENTITY,
     CONF_SOLAR_FORECAST_TOMORROW_ENTITY,
     CONF_STALE_MINUTES,
+    CONF_TARIFF_SEASONS,
     CONF_VERBOSE_LOGGING,
     CONF_WEEKDAYS_ONLY,
     DEFAULT_BASE_LOAD,
@@ -68,11 +75,13 @@ from .const import (
     DEFAULT_GAUGE_FLOOR,
     DEFAULT_HOLIDAY_PRESET,
     DEFAULT_LOAD_QUANTILE,
+    DEFAULT_MIDPEAK_PRICE,
     DEFAULT_MIDPEAK_START,
     DEFAULT_NOTIFICATIONS_ENABLED,
     DEFAULT_PACK_CAPACITY_AH,
     DEFAULT_PACK_CURRENT_CHARGE_POSITIVE,
     DEFAULT_PEAK_END,
+    DEFAULT_PEAK_PRICE,
     DEFAULT_PEAK_START,
     DEFAULT_PLANNER,
     DEFAULT_MIN_SAFE_SOC,
@@ -188,7 +197,7 @@ class PeakShaverConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             peak = user_input[CONF_PEAK_START]
             end = user_input[CONF_PEAK_END]
 
-            if mid >= peak:
+            if mid > peak:      # equal: no mid-peak window (0.9.1)
                 errors[CONF_PEAK_START] = "invalid_time_range"
             if peak >= end:
                 errors[CONF_PEAK_END] = "invalid_time_range"
@@ -327,19 +336,13 @@ class PeakShaverOptionsFlow(config_entries.OptionsFlow):
         """Battery and sensors."""
         return self._section(SECTION_BATTERY, user_input)
 
-    async def async_step_schedule(self, user_input: dict[str, Any] | None = None):
-        """Price windows, weekdays and holidays."""
+    async def async_step_tariff(self, user_input: dict[str, Any] | None = None):
+        """Tariff: price windows, prices, seasons, weekdays and holidays (0.9.1)."""
         errors: dict[str, str] = {}
+        placeholders = {"seasons_detail": "", "prices_detail": "", "rules_detail": "", "dates_detail": ""}
         if user_input is not None:
-            current = self._current(user_input)
-            mid = float(current.get(CONF_MIDPEAK_START, DEFAULT_MIDPEAK_START))
-            peak = float(current.get(CONF_PEAK_START, DEFAULT_PEAK_START))
-            end = float(current.get(CONF_PEAK_END, DEFAULT_PEAK_END))
-            if mid >= peak:
-                errors[CONF_PEAK_START] = "invalid_time_range"
-            if peak >= end:
-                errors[CONF_PEAK_END] = "invalid_time_range"
-        return self._section(SECTION_SCHEDULE, user_input, errors)
+            user_input, errors, placeholders = check_tariff(self._current(), user_input)
+        return self._section(SECTION_TARIFF, user_input, errors, placeholders)
 
     async def async_step_learned(self, user_input: dict[str, Any] | None = None):
         """Learned planner."""
@@ -371,7 +374,7 @@ class PeakShaverOptionsFlow(config_entries.OptionsFlow):
         return {**self.config_entry.data, **self.config_entry.options, **(user_input or {})}
 
     def _section(self, section: str, user_input: dict[str, Any] | None,
-                 errors: dict[str, str] | None = None):
+                 errors: dict[str, str] | None = None, placeholders: dict[str, str] | None = None):
         errors = errors or {}
         if user_input is not None and not errors:
             return self.async_create_entry(
@@ -379,6 +382,9 @@ class PeakShaverOptionsFlow(config_entries.OptionsFlow):
             )
         current = self._current(user_input)
         schema = vol.Schema(dict(_field(key, current) for key in SECTIONS[section]))
+        if placeholders is not None:
+            return self.async_show_form(step_id=section, data_schema=schema, errors=errors,
+                                        description_placeholders=placeholders)
         return self.async_show_form(step_id=section, data_schema=schema, errors=errors)
 
 
@@ -398,8 +404,15 @@ def _sensor(multiple: bool = False) -> Any:
     return selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
 
 
-def _text() -> Any:
+def _text(multiline: bool = False) -> Any:
+    if multiline:
+        return selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT,
+                                                                 multiline=True))
     return selector.TextSelector(selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT))
+
+
+def _price() -> Any:
+    return _number(0.0, 10.0, 0.0001, "$/kWh")
 
 
 def _choice(options: list[str], translation_key: str | None = None) -> Any:
@@ -421,7 +434,13 @@ _FIELDS: dict[str, tuple[Any, Any]] = {
     CONF_PEAK_START: (DEFAULT_PEAK_START, lambda: _number(0, 23, 1, "hour")),
     CONF_PEAK_END: (DEFAULT_PEAK_END, lambda: _number(1, 24, 1, "hour")),
     CONF_WEEKDAYS_ONLY: (DEFAULT_WEEKDAYS_ONLY, lambda: selector.BooleanSelector()),
+    CONF_OFFPEAK_PRICE: (None, lambda: _price()),
+    CONF_MIDPEAK_PRICE: (DEFAULT_MIDPEAK_PRICE, lambda: _price()),
+    CONF_PEAK_PRICE: (DEFAULT_PEAK_PRICE, lambda: _price()),
+    CONF_TARIFF_SEASONS: (None, lambda: _text(multiline=True)),
     CONF_HOLIDAY_PRESET: (DEFAULT_HOLIDAY_PRESET, lambda: _choice(list(HOLIDAY_PRESETS), CONF_HOLIDAY_PRESET)),
+    CONF_HOLIDAY_RULES: (None, lambda: _text(multiline=True)),
+    CONF_HOLIDAY_DATES: (None, lambda: _text(multiline=True)),
     CONF_NOTIFICATIONS_ENABLED: (DEFAULT_NOTIFICATIONS_ENABLED, lambda: selector.BooleanSelector()),
     CONF_NOTIFY_ENTITY: (None, lambda: _text()),
     CONF_CHARGE_THRESHOLD: (DEFAULT_CHARGE_THRESHOLD, lambda: _number(0.0, 5.0, 0.1, "kWh")),
@@ -460,7 +479,15 @@ def _field(key: str, current: dict[str, Any]) -> tuple[Any, Any]:
     default, make = _FIELDS[key]
     if default is None:
         empty: Any = [] if key == CONF_PACK_CURRENT_ENTITIES else ""
-        return vol.Optional(key, description={"suggested_value": current.get(key) or empty}), make()
+        value = current.get(key)
+        if key == CONF_HOLIDAY_RULES:
+            # the rules in force: a preset's own, or the typed ones for custom
+            preset = normalize_preset(current.get(CONF_HOLIDAY_PRESET, DEFAULT_HOLIDAY_PRESET))
+            if preset != HOLIDAY_PRESET_CUSTOM:
+                value = preset_rules_text(preset)
+        if value is None or value == "" or (isinstance(value, list) and not value):
+            value = empty
+        return vol.Optional(key, description={"suggested_value": value}), make()
     value = current.get(key, default)
     if key in _CSV_KEYS:
         value = _as_csv(value)

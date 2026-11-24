@@ -21,15 +21,21 @@ from custom_components.solarseed_peak_shaver.const import (  # noqa: E402
     CONF_CAPACITY_V_LOW,
     CONF_GAUGE_ENTITY,
     CONF_HOLIDAY_PRESET,
+    CONF_HOLIDAY_RULES,
     CONF_LOAD_QUANTILE,
+    CONF_MIDPEAK_PRICE,
     CONF_MIDPEAK_START,
+    CONF_OFFPEAK_PRICE,
     CONF_PEAK_END,
+    CONF_PEAK_PRICE,
     CONF_PEAK_START,
     CONF_PLANNER,
     CONF_SCHEDULE_HOURS,
     CONF_SOLAR_ACTUAL_ENTITY,
     CONF_STALE_MINUTES,
+    CONF_TARIFF_SEASONS,
 )
+from custom_components.solarseed_peak_shaver.holidays import HOLIDAY_PRESETS, preset_rules_text  # noqa: E402
 from custom_components.solarseed_peak_shaver.options import SECTIONS  # noqa: E402
 from tests.test_options import OLD_FLAT_FORM_OPTIONS  # noqa: E402
 
@@ -66,7 +72,7 @@ def test_the_options_open_on_the_menu():
     assert asyncio.run(flow.async_step_init(None)) == "menu"
     kwargs = flow.async_show_menu.call_args.kwargs
     assert kwargs["step_id"] == "init"
-    assert kwargs["menu_options"] == ["battery", "schedule", "learned", "packs", "notifications", "classic"]
+    assert kwargs["menu_options"] == ["battery", "tariff", "learned", "packs", "notifications", "classic"]
 
 
 @pytest.mark.parametrize("section", list(SECTIONS))
@@ -134,12 +140,72 @@ def test_a_cleared_sensor_stays_cleared():
 
 def test_the_price_windows_must_be_in_order():
     flow = make_flow()
-    out = step(flow, "schedule", {CONF_MIDPEAK_START: 17, CONF_PEAK_START: 17, CONF_PEAK_END: 16,
-                                  "weekdays_only": True, CONF_HOLIDAY_PRESET: "pge"})
+    out = step(flow, "tariff", {CONF_MIDPEAK_START: 18, CONF_PEAK_START: 17, CONF_PEAK_END: 16,
+                                "weekdays_only": True, CONF_HOLIDAY_PRESET: "pge"})
     assert out == "form"
     assert flow.async_show_form.call_args.kwargs["errors"] == {
         CONF_PEAK_START: "invalid_time_range", CONF_PEAK_END: "invalid_time_range"}
     flow.async_create_entry.assert_not_called()
+
+
+def test_no_midpeak_window_is_a_two_price_plan():
+    # 0.9.1: mid-peak start equal to peak start is accepted (PG&E style 16-21 peak only)
+    flow = make_flow()
+    out = step(flow, "tariff", {CONF_MIDPEAK_START: 16, CONF_PEAK_START: 16, CONF_PEAK_END: 21,
+                                "weekdays_only": False, CONF_HOLIDAY_PRESET: "none"})
+    assert out == "created"
+
+
+def test_the_tariff_form_shows_the_preset_rules_and_pge_prices():
+    flow = make_flow(options=OLD_FLAT_FORM_OPTIONS)
+    step(flow, "tariff")
+    form = shown(flow)
+    assert form[CONF_HOLIDAY_RULES] == preset_rules_text("pge")
+    assert "11-thu-4 Thanksgiving" in form[CONF_HOLIDAY_RULES]
+    assert form[CONF_MIDPEAK_PRICE] == 0.1670 and form[CONF_PEAK_PRICE] == 0.4313
+    assert form[CONF_OFFPEAK_PRICE] == "" and form[CONF_TARIFF_SEASONS] == ""
+    assert flow.async_show_form.call_args.kwargs["description_placeholders"]["seasons_detail"] == ""
+
+
+def test_choosing_us_federal_saves_its_rules():
+    flow = make_flow(options=OLD_FLAT_FORM_OPTIONS)
+    step(flow, "tariff")
+    submitted = {k: v for k, v in shown(flow).items() if v not in ("", [])}
+    submitted[CONF_HOLIDAY_PRESET] = "us_federal"                    # the rules field still shows PGE's
+    assert step(flow, "tariff", submitted) == "created"
+    saved = flow.async_create_entry.call_args.kwargs["data"]
+    assert saved[CONF_HOLIDAY_PRESET] == "us_federal"
+    assert saved[CONF_HOLIDAY_RULES] == preset_rules_text("us_federal")
+    assert saved[CONF_OFFPEAK_PRICE] == "" and saved[CONF_TARIFF_SEASONS] == ""
+    for key, value in OLD_FLAT_FORM_OPTIONS.items():
+        if key != CONF_HOLIDAY_PRESET:
+            assert saved[key] == value, key
+
+
+def test_a_season_with_two_peak_windows_is_refused_in_the_form():
+    flow = make_flow(options=OLD_FLAT_FORM_OPTIONS)
+    step(flow, "tariff")
+    submitted = {**{k: v for k, v in shown(flow).items() if v not in ("", [])},
+                 CONF_TARIFF_SEASONS: "Summer 06-09: peak 7-11, peak 17-21"}
+    assert step(flow, "tariff", submitted) == "form"
+    kwargs = flow.async_show_form.call_args.kwargs
+    assert kwargs["errors"] == {CONF_TARIFF_SEASONS: "invalid_seasons"}
+    assert "two peak windows" in kwargs["description_placeholders"]["seasons_detail"]
+    assert shown(flow)[CONF_TARIFF_SEASONS] == "Summer 06-09: peak 7-11, peak 17-21"   # kept to fix
+    flow.async_create_entry.assert_not_called()
+
+
+def test_every_error_and_preset_has_its_text():
+    for name in ("strings.json", "translations/en.json"):
+        strings = json.loads((BASE / name).read_text(encoding="utf-8"))
+        errors = strings["options"]["error"]
+        for key, placeholder in (("invalid_prices", "{prices_detail}"), ("invalid_seasons", "{seasons_detail}"),
+                                 ("invalid_holiday_rules", "{rules_detail}"),
+                                 ("invalid_holiday_dates", "{dates_detail}")):
+            assert placeholder in errors[key], (name, key)
+        for preset in HOLIDAY_PRESETS:
+            assert strings["selector"]["holiday_preset"]["options"][preset], (name, preset)
+            assert strings["entity"]["select"]["holiday_preset"]["state"][preset], (name, preset)
 
 
 def test_lower_voltage_must_be_below_the_upper():

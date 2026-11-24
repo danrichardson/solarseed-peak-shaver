@@ -14,7 +14,8 @@ Three hard-coded tiers, hour boundaries from config (defaults = PGE Time of Day)
 | Peak | 17:00 - 21:00 | $0.44 |
 
 Rates themselves are not in the integration; only `tools/analyze_performance.py` hard-codes
-them (plus a 15% round-trip loss). Holidays are not handled.
+them (plus a 15% round-trip loss). Holidays are not handled. (Since 0.8.2 holidays are, and
+since 0.9.1 the tariff with its prices is data; see "0.9.1 additions".)
 
 ## Daily timeline (weekday, default config)
 
@@ -374,6 +375,79 @@ late on 11-27"), and the health record lists them under `late_events`. They are 
 once a scoring has graded a day with them, and kept if the next scoring has nothing to
 grade. A day that was not scored (a weekend, a holiday) carries nothing: those days stay
 ungraded. The record survives a restart, including one over midnight. At most 14 are kept.
+
+## 0.9.1 additions
+
+**The tariff is data.** `tariff.py` (pure Python) describes when electricity costs what:
+
+- three named periods with a price per kWh: off-peak (cheap), mid-peak (middle), peak
+  (dear). They are the planner's three windows, and every tariff is mapped onto them;
+- the hours of a TOU day: mid-peak from `midpeak_start_hour` to `peak_start_hour`, peak
+  from there to `peak_end_hour`, off-peak the rest. These are the three hour options of
+  every earlier version, kept as the base hours. Mid-peak start equal to peak start means
+  no mid-peak window: a two-price plan (off-peak and peak);
+- day types: on a weekday the windows apply; on a weekend they apply only when
+  weekdays-only is off; a holiday is off-peak all day (`holidays.day_type`);
+- optional seasons: for some months, other hours, other prices, or both. A season never
+  changes the planner's rules, only the hours and prices it works with;
+- the holiday calendar.
+
+With no tariff option stored, the tariff is PGE Time of Day exactly as 0.9.0 assumed it
+(hours 7, 17, 21, weekdays only, the PGE holidays, mid-peak $0.1670 and peak $0.4313, and
+off-peak unpriced); `tests/test_tariff.py` compares period and price for every hour of three
+sample weeks (Thanksgiving 2026, 2027-07-05 observed, 2027-12-31 observed) with a frozen
+copy of the 0.9.0 rules. An entry with only the three hour keys works unchanged.
+
+**Options.** The Schedule section of the menu is now Tariff: the three hours, weekdays
+only, the three prices (`offpeak_price` optional, `midpeak_price`, `peak_price`), seasons
+(`tariff_seasons`), the holiday preset, the holiday rules (`holiday_rules`) and one-off
+holidays (`holiday_dates`). Seasons are typed one per line, a name optional:
+`Summer 06-09: mid-peak 7-15, peak 15-20 0.52, mid-peak 0.20`. Months are one month or a
+range (`11-02` wraps the year); each item is a period with hours, a price, or both; hours
+replace the day's windows (peak must be given, mid-peak must end where peak starts); a
+season with prices only keeps the base hours.
+
+**Refused, not half-supported.** A tariff that does not fit the planner's cheap, middle,
+dear day is refused in the form with the reason: two peak (or mid-peak) windows in a day, a
+gap between mid-peak and peak or mid-peak after peak, a window across midnight, hours for
+off-peak, a month in two seasons, and prices that do not rise from off-peak to mid-peak to
+peak (the planner's rule that any predicted peak shortfall is worth a mid-peak top-up relies
+on it; the mid-peak price does not count when there is no mid-peak window). Weekend hours
+unlike the weekday's cannot be typed. A season that no longer parses in a hand-edited entry
+is left out (its months use the base), never half-applied.
+
+**Holidays as typed rules.** `holiday_preset` now has four values: `none`, `pge` (the
+default, also when absent), `us_federal` (the eleven federal holidays) and `custom`. The
+rules field shows the rules in force: one per line, `01-01 New Year's Day` (a fixed date),
+`11-thu-4 Thanksgiving` (the nth weekday, 1 to 5), `05-mon-last Memorial Day` (the last
+one), and `sat->fri, sun->mon` (move a fixed date that falls on a weekend). The name is
+optional. Choosing a preset fills the field with its rules on save; editing the rules
+under a preset makes it `custom`; a rule that is not understood is refused with the
+reason. One-off holidays (`2026-12-24 Christmas Eve`) are a separate field, kept whatever
+the preset, never shifted. The device-page select offers all four presets; choosing
+`custom` there uses the stored rules (none stored: only the one-off dates). Holidays,
+prices and season months are read live; only hours need a reload.
+
+**Hours by season.** `coord.windows_on(date)` gives the hours of that date's season, and
+`coord.period_at(when)` the period with the day type. The learned runtime asks for the
+hours of the date it is planning or booking (the planner's inputs, the grid energy per
+period, the handover record, the gauge checkpoints, the weekly top-up); the classic planner
+and the sensors use today's. The timers (SOC checkpoints, solar sampling, off-peak hold,
+daily scoring) are set for the hours of every season and act only on the day's own, so a
+season change needs no restart; a saved change to a season's hours reloads the entry
+(`tariff_seasons` is in `RELOAD_KEYS`, compared by hours only). After peak end, the night
+before a TOU day is planned with today's hours: on the one night a season changes, the
+first plan uses the old mid-peak start until midnight, when the new day's hours apply.
+
+**Dollars from the tariff.** The health record's `cost_usd` is the day's mid-peak and peak
+grid energy at that day's prices (its season's), with the prices used in a new `prices`
+field; the meaning of `cost_usd` is unchanged, and so is the daily message ("$0.86 at
+mid-peak and peak prices"). The Learned Plan sensor adds `tariff` ("PGE Time of Day" or
+"Custom"), `season`, `day_type`, `price_windows` ("07-17 mid-peak, 17-21 peak" or
+"off-peak all day"), `prices`, `price_period` and `price_now`, and in dollars at the day's
+peak price `handover_cost_usd` (what touching the floor costs) and `shortfall_cost_usd`
+(the predicted peak shortfall, when there is one). Diagnostics show the tariff as read.
+Prices are in dollars; another currency is not supported.
 
 ## State that does not survive an HA restart
 

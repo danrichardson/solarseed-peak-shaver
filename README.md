@@ -91,10 +91,13 @@ The config wizard walks you through three screens:
 | Hold months | Which months solar won't refill the battery | 11,12,1,2,3 |
 
 All settings can be changed later through the integration's **Configure** button, which
-opens a menu of sections (Battery and sensors, Schedule, Learned planner, Third-party packs,
-Notifications, Classic planner). Saving a section changes only that section. The planner,
-the utility holidays and four learned-planner tuning values are also settings on the
-device page, and take effect within a minute without a restart.
+opens a menu of sections (Battery and sensors, Tariff, Learned planner, Third-party packs,
+Notifications, Classic planner). Saving a section changes only that section. The Tariff
+section holds the rate hours, the prices per kWh, optional seasons and the utility holidays
+(presets for PGE and US federal, or your own rules such as `11-thu-4` and one-off dates);
+the defaults are PGE Time of Day. The planner, the utility holidays and four
+learned-planner tuning values are also settings on the device page, and take effect within
+a minute without a restart.
 
 ### Step 2: Import the blueprints
 

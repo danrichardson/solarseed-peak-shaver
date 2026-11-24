@@ -67,6 +67,8 @@ as the optional pack sensors in 0.8.0. Current state and operating notes: `docs/
    change peak hours or prices in summer), and the holiday rules from item 7. PGE Time
    of Day as the first preset. Prices let the scorecard and the handover cost (0.8.0)
    report dollars, not only kWh.
+   Built in 0.9.1 (`tariff.py`, typed holiday rules in `holidays.py`; see
+   `docs/how-it-works.md`, "0.9.1 additions").
 
 ## Later
 

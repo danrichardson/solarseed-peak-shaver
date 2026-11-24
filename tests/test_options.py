@@ -118,7 +118,8 @@ class TestSections:
         assert set(OLD_FLAT_FORM_OPTIONS) <= keys
 
     def test_the_menu_order(self):
-        assert list(SECTIONS) == ["battery", "schedule", "learned", "packs", "notifications", "classic"]
+        # 0.9.1: the Schedule section became Tariff (the same hours, with prices and seasons)
+        assert list(SECTIONS) == ["battery", "tariff", "learned", "packs", "notifications", "classic"]
 
     def test_only_optional_fields_can_be_cleared(self):
         for key, empty in CLEARED_VALUE.items():
@@ -226,7 +227,7 @@ class TestEntities:
     def test_an_unknown_choice_is_refused(self):
         rt, coord, _ = coordinator_with()
         with pytest.raises(ValueError):
-            asyncio.run(make_select(coord, CONF_HOLIDAY_PRESET).async_select_option("us_federal"))
+            asyncio.run(make_select(coord, CONF_HOLIDAY_PRESET).async_select_option("bogus"))
         assert coord.hass.config_entries.updates == []
 
     def test_a_number_writes_one_option_rounded(self):

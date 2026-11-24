@@ -1,7 +1,6 @@
 """Sensor platform for Solarseed Peak Shaver."""
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -17,6 +16,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .holidays import holiday_attributes
+from .tariff import cost_attributes
 from .const import (
     DOMAIN,
     NAME,
@@ -328,7 +328,10 @@ class PeakShaverSensor(CoordinatorEntity[PeakShaverCoordinator], SensorEntity):
             attrs["weekly_topup_pending"] = runtime.topup_pending
             attrs["power_sensors_configured"] = runtime.sensors_configured
             attrs["battery_data_stale"] = runtime.data_stale
-            attrs.update(holiday_attributes(datetime.now().date(), coord.holiday_preset))
+            now = coord._now()
+            attrs.update(holiday_attributes(now.date(), coord.holiday_calendar, coord.holiday_preset))
+            # The tariff in force and what the plan's risks cost at its peak price (0.9.1)
+            attrs.update(cost_attributes(coord.tariff, now, decision.handover_kwh, decision.shortfall_kwh))
             return attrs
 
         if runtime is not None and self._sensor_key == SENSOR_LEARNED_ENERGY:

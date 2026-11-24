@@ -14,6 +14,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .tariff import PERIOD_MIDPEAK, PERIOD_PEAK, PGE_MIDPEAK_PRICE, PGE_PEAK_PRICE
+
 GOOD = "good"
 FAIR = "fair"
 POOR = "poor"
@@ -35,9 +37,10 @@ REVIEW_NOT_GOOD_RUN = 3        # this many non-Good days in a row call for a rev
 REVIEW_BIAS_PTS = 8.0          # mean signed peak-end error, over the window, calls for a review
 MIN_BIAS_DAYS = 5              # days with a prediction needed before the bias counts
 
-# PGE Time of Day prices, USD per kWh. Constants for now; ROADMAP item 8 makes them data.
-PRICE_MIDPEAK = 0.1670
-PRICE_PEAK = 0.4313
+# Prices come from the tariff (0.9.1, `tariff.py`); these are PGE Time of Day's, used when
+# grade_day is not given any (old callers and tests).
+PRICE_MIDPEAK = PGE_MIDPEAK_PRICE
+PRICE_PEAK = PGE_PEAK_PRICE
 
 
 def _num(value: Any, default: float = 0.0) -> float:
@@ -54,13 +57,20 @@ def _opt(value: Any) -> float | None:
         return None
 
 
-def grade_day(learned: dict[str, Any] | None, date: str) -> dict[str, Any] | None:
+def grade_day(learned: dict[str, Any] | None, date: str,
+              prices: dict[str, float | None] | None = None) -> dict[str, Any] | None:
     """Grade one TOU day from the learned runtime's daily summary.
 
+    `prices` are the day's prices per kWh by period, from the tariff; the cost counts the
+    grid energy in mid-peak and peak, as it always has. Missing: PGE Time of Day's.
     Returns the `health` record for the scorecard, or None when there is nothing to
     grade (no grid readings all day and no frozen data either).
     """
     summary = learned or {}
+    prices = prices or {}
+    # a period given without a price (None) adds nothing to the cost
+    price_mid = _num(prices.get(PERIOD_MIDPEAK, PRICE_MIDPEAK))
+    price_peak = _num(prices.get(PERIOD_PEAK, PRICE_PEAK))
     grid = summary.get("grid_kwh") or {}
     frozen = _num(summary.get("stale_longest_min", summary.get("stale_minutes")))
     if not grid and frozen <= FROZEN_POOR_MIN:
@@ -121,7 +131,8 @@ def grade_day(learned: dict[str, Any] | None, date: str) -> dict[str, Any] | Non
         "peak_covered": peak_covered,
         "grid_midpeak_kwh": round(midpeak, 2),
         "grid_peak_kwh": round(peak, 2),
-        "cost_usd": round(midpeak * PRICE_MIDPEAK + peak * PRICE_PEAK, 2),
+        "cost_usd": round(midpeak * price_mid + peak * price_peak, 2),
+        "prices": {PERIOD_MIDPEAK: price_mid, PERIOD_PEAK: price_peak},
         "gauge_peak_end": actual,
         "pred_gauge_peak_end": predicted,
         "peak_end_error_pts": error,

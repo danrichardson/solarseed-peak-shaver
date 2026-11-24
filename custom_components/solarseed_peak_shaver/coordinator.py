@@ -27,17 +27,22 @@ from .const import (
     CONF_GAUGE_ENTITY,
     CONF_GAUGE_FLOOR,
     CONF_GRID_POWER_ENTITY,
+    CONF_HOLIDAY_DATES,
     CONF_HOLIDAY_PRESET,
+    CONF_HOLIDAY_RULES,
     CONF_LOAD_POWER_ENTITY,
     CONF_LOAD_QUANTILE,
+    CONF_MIDPEAK_PRICE,
     CONF_MIDPEAK_START,
     CONF_NOTIFICATIONS_ENABLED,
+    CONF_OFFPEAK_PRICE,
     CONF_NOTIFY_ENTITY,
     CONF_PACK_CAPACITY_AH,
     CONF_PACK_CURRENT_CHARGE_POSITIVE,
     CONF_PACK_CURRENT_ENTITIES,
     CONF_PEAK_END,
     CONF_PEAK_MARGIN_KWH,
+    CONF_PEAK_PRICE,
     CONF_PEAK_START,
     CONF_PLANNER,
     CONF_PV_POWER_ENTITY,
@@ -51,6 +56,7 @@ from .const import (
     CONF_SOLAR_FORECAST_ENTITY,
     CONF_SOLAR_FORECAST_TOMORROW_ENTITY,
     CONF_STALE_MINUTES,
+    CONF_TARIFF_SEASONS,
     CONF_VERBOSE_LOGGING,
     CONF_WEEKDAYS_ONLY,
     DEFAULT_BASE_LOAD,
@@ -60,15 +66,19 @@ from .const import (
     DEFAULT_CHARGE_THRESHOLD,
     DEFAULT_FULL_CHARGE_MONTHS,
     DEFAULT_GAUGE_FLOOR,
+    DEFAULT_HOLIDAY_DATES,
     DEFAULT_HOLIDAY_PRESET,
     DEFAULT_LOAD_QUANTILE,
+    DEFAULT_MIDPEAK_PRICE,
     DEFAULT_MIDPEAK_START,
     DEFAULT_NOTIFICATIONS_ENABLED,
     DEFAULT_NOTIFY_ENTITY,
+    DEFAULT_OFFPEAK_PRICE,
     DEFAULT_PACK_CAPACITY_AH,
     DEFAULT_PACK_CURRENT_CHARGE_POSITIVE,
     DEFAULT_PEAK_END,
     DEFAULT_PEAK_MARGIN_KWH,
+    DEFAULT_PEAK_PRICE,
     DEFAULT_PEAK_START,
     DEFAULT_PLANNER,
     DEFAULT_MIN_SAFE_SOC,
@@ -79,6 +89,7 @@ from .const import (
     DEFAULT_SOLAR_ACTUAL_ENTITY,
     DEFAULT_SOLAR_CONFIDENCE,
     DEFAULT_STALE_MINUTES,
+    DEFAULT_TARIFF_SEASONS,
     DEFAULT_VERBOSE_LOGGING,
     DEFAULT_WEEKDAYS_ONLY,
     DOMAIN,
@@ -94,10 +105,11 @@ from .const import (
     SENSOR_PROJECTED_MIN,
     SENSOR_TARGET_SOC,
 )
-from .holidays import is_tou_day, normalize_preset
+from .holidays import HolidayCalendar, build_calendar, is_tou_day, normalize_preset
 from .health import HEALTH_REVIEW, daily_message, grade_day, review_message
 from .health import status as health_status
 from .store import PeakShaverStore
+from .tariff import Tariff, Windows, build_tariff
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -167,17 +179,19 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
     def min_safe_soc(self) -> float:
         return float(self._cfg(CONF_MIN_SAFE_SOC, DEFAULT_MIN_SAFE_SOC))
 
+    # --- The tariff (0.9.1). The three hour options are the base windows; a season can
+    # change them by month, so the hours below are the ones in force today. ---
     @property
     def midpeak_start(self) -> int:
-        return int(self._cfg(CONF_MIDPEAK_START, DEFAULT_MIDPEAK_START))
+        return self.windows_on(self._now().date()).midpeak_start
 
     @property
     def peak_start(self) -> int:
-        return int(self._cfg(CONF_PEAK_START, DEFAULT_PEAK_START))
+        return self.windows_on(self._now().date()).peak_start
 
     @property
     def peak_end(self) -> int:
-        return int(self._cfg(CONF_PEAK_END, DEFAULT_PEAK_END))
+        return self.windows_on(self._now().date()).peak_end
 
     @property
     def weekdays_only(self) -> bool:
@@ -188,9 +202,61 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         """Utility holidays that are off-peak all day; absent key = PGE, unknown = none."""
         return normalize_preset(self._cfg(CONF_HOLIDAY_PRESET, DEFAULT_HOLIDAY_PRESET))
 
+    @property
+    def holiday_calendar(self) -> HolidayCalendar:
+        """The preset's rules (the typed ones when it is custom) plus one-off dates."""
+        return build_calendar(self.holiday_preset, self._text_cfg(CONF_HOLIDAY_RULES),
+                              self._text_cfg(CONF_HOLIDAY_DATES, DEFAULT_HOLIDAY_DATES))
+
+    def _text_cfg(self, key: str, default: str = "") -> str:
+        val = self._cfg(key, default)
+        return "" if val is None else str(val)
+
+    def _price_cfg(self, key: str, default: float | None) -> float | None:
+        """A price per kWh; empty means not given, anything unreadable the default."""
+        raw = self._cfg(key, default)
+        if raw is None or (isinstance(raw, str) and not raw.strip()):
+            return None
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            return default
+        return val if math.isfinite(val) and val >= 0 else default
+
+    def _hour_cfg(self, key: str, default: int) -> int:
+        try:
+            return int(float(self._cfg(key, default)))
+        except (TypeError, ValueError):
+            return default
+
+    @property
+    def tariff(self) -> Tariff:
+        """Periods, prices, seasons and holidays, from the options (PGE Time of Day when
+        none is stored). Built once per distinct set of options."""
+        return build_tariff(
+            self._hour_cfg(CONF_MIDPEAK_START, DEFAULT_MIDPEAK_START),
+            self._hour_cfg(CONF_PEAK_START, DEFAULT_PEAK_START),
+            self._hour_cfg(CONF_PEAK_END, DEFAULT_PEAK_END),
+            self.weekdays_only,
+            self._price_cfg(CONF_OFFPEAK_PRICE, DEFAULT_OFFPEAK_PRICE),
+            self._price_cfg(CONF_MIDPEAK_PRICE, DEFAULT_MIDPEAK_PRICE),
+            self._price_cfg(CONF_PEAK_PRICE, DEFAULT_PEAK_PRICE),
+            self._text_cfg(CONF_TARIFF_SEASONS, DEFAULT_TARIFF_SEASONS),
+            self.holiday_calendar,
+        )
+
+    def windows_on(self, d: date) -> Windows:
+        """The mid-peak and peak hours that apply on `d`'s season."""
+        return self.tariff.windows_on(d)
+
+    def period_at(self, when: datetime) -> str:
+        """off-peak, mid-peak or peak at `when`, with the day type (off-peak all day on a
+        day that is not a TOU day)."""
+        return self.tariff.period_at(when)
+
     def is_tou_day(self, d: date) -> bool:
         """Do the mid-peak and peak windows apply on `d`? (weekday rule and holidays)"""
-        return is_tou_day(d, self.weekdays_only, self.holiday_preset)
+        return is_tou_day(d, self.weekdays_only, self.holiday_calendar)
 
     @property
     def battery_soc_entity(self) -> str:
@@ -371,14 +437,18 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
     def setup_signature(self) -> dict[str, Any]:
         """The settings read once at start (timers, state listeners, pack sensors), as the
         integration understands them. A saved change to any of these reloads the entry
-        (`options.RELOAD_KEYS`); everything else is read live."""
+        (`options.RELOAD_KEYS`); everything else is read live. The timers are set for the
+        hours of every season, so only a season's hours count, not its months or prices."""
+        tariff = self.tariff
         return {
             CONF_BATTERY_SOC_ENTITY: self.battery_soc_entity.strip(),
             CONF_SOLAR_FORECAST_ENTITY: self.solar_forecast_entity.strip(),
             CONF_SOLAR_ACTUAL_ENTITY: self.solar_actual_entity.strip(),
-            CONF_MIDPEAK_START: self.midpeak_start,
-            CONF_PEAK_START: self.peak_start,
-            CONF_PEAK_END: self.peak_end,
+            CONF_MIDPEAK_START: tariff.windows.midpeak_start,
+            CONF_PEAK_START: tariff.windows.peak_start,
+            CONF_PEAK_END: tariff.windows.peak_end,
+            CONF_TARIFF_SEASONS: tuple((w.midpeak_start, w.peak_start, w.peak_end)
+                                       for w in tariff.all_windows()),
             CONF_SCHEDULE_HOURS: tuple(self.schedule_hours),
             CONF_SEASONAL_PRESERVATION: self.seasonal_preservation,
             CONF_PACK_CURRENT_ENTITIES: tuple(self.pack_current_entities),
@@ -463,21 +533,28 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
             )
             self._unsub_listeners.append(unsub)
 
+        # The tariff's hours: one set, or one per season (0.9.1). Each timer is set for every
+        # season's hour and acts only when the hour is that day's own.
+        windows = self.tariff.all_windows()
+        end_hours = sorted({w.peak_end % 24 for w in windows})
+
         # Seasonal preservation trigger at peak_end + 5 minutes
         if self.seasonal_preservation:
-            unsub = async_track_time_change(
-                self.hass,
-                self._on_preservation_time,
-                hour=self.peak_end,
-                minute=5,
-                second=0,
-            )
-            self._unsub_listeners.append(unsub)
+            for end_hour in end_hours:
+                unsub = async_track_time_change(
+                    self.hass,
+                    self._on_preservation_time,
+                    hour=end_hour,
+                    minute=5,
+                    second=0,
+                )
+                self._unsub_listeners.append(unsub)
 
         # --- Performance tracking listeners ---
 
         # SOC checkpoints at midpeak_start, peak_start, peak_end
-        for ckpt_hour in [self.midpeak_start, self.peak_start, self.peak_end % 24]:
+        ckpt_hours = sorted({h % 24 for w in windows for h in (w.midpeak_start, w.peak_start, w.peak_end)})
+        for ckpt_hour in ckpt_hours:
             unsub = async_track_time_change(
                 self.hass,
                 self._on_soc_checkpoint,
@@ -489,25 +566,27 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
 
         # Hourly solar actual sampling during rate window
         if self.solar_actual_entity:
-            for sample_hour in range(self.midpeak_start, self.peak_end + 1):
+            sample_hours = sorted({h % 24 for w in windows for h in range(w.midpeak_start, w.peak_end + 1)})
+            for sample_hour in sample_hours:
                 unsub = async_track_time_change(
                     self.hass,
                     self._on_solar_actual_sample,
-                    hour=sample_hour % 24,
+                    hour=sample_hour,
                     minute=0,
                     second=15,
                 )
                 self._unsub_listeners.append(unsub)
 
         # Daily scoring at peak_end + 10 minutes
-        unsub = async_track_time_change(
-            self.hass,
-            self._on_daily_scoring_time,
-            hour=self.peak_end % 24,
-            minute=10,
-            second=0,
-        )
-        self._unsub_listeners.append(unsub)
+        for end_hour in end_hours:
+            unsub = async_track_time_change(
+                self.hass,
+                self._on_daily_scoring_time,
+                hour=end_hour,
+                minute=10,
+                second=0,
+            )
+            self._unsub_listeners.append(unsub)
 
     def remove_listeners(self) -> None:
         """Remove all registered listeners."""
@@ -654,6 +733,9 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         if not self.is_tou_day(now.date()):
             return
 
+        if now.hour != self.windows_on(now.date()).peak_end % 24:
+            return  # another season's peak end
+
         if self.planner == PLANNER_LEARNED:
             return  # the learned planner decides when to hold
 
@@ -693,14 +775,17 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         if current_soc is None:
             return  # no checkpoint beats a checkpoint of 0 kWh
         hour = now.hour
+        w = self.windows_on(now.date())
 
-        if hour == self.midpeak_start:
+        if hour == w.midpeak_start:
             self.actual_soc_checkpoints["midpeak_start"] = round(current_soc, 2)
             self._daily_min_soc = current_soc
             self._daily_min_tracking = True
-        elif hour == self.peak_start:
+            if w.peak_start == w.midpeak_start:     # no mid-peak window: peak starts now too
+                self.actual_soc_checkpoints["peak_start"] = round(current_soc, 2)
+        elif hour == w.peak_start:
             self.actual_soc_checkpoints["peak_start"] = round(current_soc, 2)
-        elif hour == self.peak_end % 24:
+        elif hour == w.peak_end % 24:
             self.actual_soc_checkpoints["peak_end"] = round(current_soc, 2)
             # After a restart inside the window, tracking never started and the day's
             # minimum is unknown (it was infinity, which crashed scoring on 2026-11-19).
@@ -718,6 +803,9 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         entity_id = self.solar_actual_entity
         if not entity_id:
             return
+        w = self.windows_on(now.date())
+        if now.hour not in {h % 24 for h in range(w.midpeak_start, w.peak_end + 1)}:
+            return  # another season's hour
         state = self.hass.states.get(entity_id)
         if state is None:
             return
@@ -739,6 +827,8 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         """Run daily performance scoring after peak ends."""
         if not self.is_tou_day(now.date()):
             return
+        if now.hour != self.windows_on(now.date()).peak_end % 24:
+            return  # another season's peak end
         self.hass.async_create_task(self._async_score_daily_performance())
 
     # -----------------------------------------------------------------
@@ -777,13 +867,9 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         return datetime.now()
 
     def _classify_period(self, dt: datetime) -> str:
-        """Classify a datetime into off-peak, mid-peak, or peak."""
-        hour = dt.hour
-        if hour < self.midpeak_start or hour >= self.peak_end:
-            return "off-peak"
-        if hour < self.peak_start:
-            return "mid-peak"
-        return "peak"
+        """Classify a datetime into off-peak, mid-peak, or peak by the hour alone (the
+        hours of its date's season); `period_at` also knows weekends and holidays."""
+        return self.windows_on(dt.date()).period(dt.hour)
 
     def _reset_daily_tracking(self) -> None:
         """Reset all daily performance tracking data if the date changed."""
@@ -1089,7 +1175,8 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
         try:
             if learned_summary is None:
                 learned_summary = self.learned.daily_summary()
-            return grade_day(learned_summary, today)
+            # the day's own prices (its season's), from the tariff (0.9.1)
+            return grade_day(learned_summary, today, self.tariff.prices_on(date.fromisoformat(today)))
         except Exception:  # noqa: BLE001 - grading must never break the daily scoring
             _LOGGER.exception("Could not grade the day's health")
             return None

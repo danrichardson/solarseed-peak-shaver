@@ -2,7 +2,7 @@
 
 DOMAIN = "solarseed_peak_shaver"
 NAME = "Solarseed Peak Shaver"
-VERSION = "0.9.0"
+VERSION = "0.9.1"
 
 # --- Config keys ---
 CONF_BATTERY_CAPACITY = "battery_capacity"
@@ -49,6 +49,15 @@ CONF_CAPACITY_V_LOW = "capacity_v_low"
 # --- 0.8.2: utility holidays (off-peak all day). Absent key = PGE, like every other default.
 CONF_HOLIDAY_PRESET = "holiday_preset"
 
+# --- 0.9.1: the tariff as data. The three hour keys above stay the base windows; absent
+# keys read as PGE Time of Day, so an entry saved before 0.9.1 behaves exactly as it did.
+CONF_OFFPEAK_PRICE = "offpeak_price"
+CONF_MIDPEAK_PRICE = "midpeak_price"
+CONF_PEAK_PRICE = "peak_price"
+CONF_TARIFF_SEASONS = "tariff_seasons"
+CONF_HOLIDAY_RULES = "holiday_rules"
+CONF_HOLIDAY_DATES = "holiday_dates"
+
 PLANNER_CLASSIC = "classic"
 PLANNER_LEARNED = "learned"
 
@@ -82,6 +91,11 @@ DEFAULT_PACK_CAPACITY_AH = 100.0
 DEFAULT_CAPACITY_V_HIGH = 53.0
 DEFAULT_CAPACITY_V_LOW = 51.5
 DEFAULT_HOLIDAY_PRESET = "pge"
+DEFAULT_OFFPEAK_PRICE = None        # PGE's was never used: the daily cost is mid-peak and peak
+DEFAULT_MIDPEAK_PRICE = 0.1670      # PGE Time of Day, USD per kWh
+DEFAULT_PEAK_PRICE = 0.4313
+DEFAULT_TARIFF_SEASONS = ""
+DEFAULT_HOLIDAY_DATES = ""
 
 # Seconds the classic planner waits before acting on the first calculation after a start
 # that wants a charge. Sensors can report a wrong value for a moment while HA loads

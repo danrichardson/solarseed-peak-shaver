@@ -55,6 +55,20 @@ async def async_get_config_entry_diagnostics(
         result["charging_active"] = coordinator._charging_active
         result["last_simulation"] = coordinator.last_simulation_summary
 
+        # The tariff as the integration reads it (0.9.1)
+        tariff = coordinator.tariff
+        result["tariff"] = {
+            **tariff.describe(coordinator._now().date()),
+            "base_windows": tariff.windows.text(),
+            "weekdays_only": tariff.weekdays_only,
+            "seasons": [{"name": s.name, "months": list(s.months),
+                         "windows": s.windows.text() if s.windows else None,
+                         "prices": dict(s.prices)} for s in tariff.seasons],
+            "holiday_preset": coordinator.holiday_preset,
+            "holiday_rules": len(tariff.holidays.rules),
+            "holiday_one_off_dates": len(tariff.holidays.dates),
+        }
+
         # Performance tracking data
         result["performance"] = {
             "last_daily_scorecard": coordinator.last_daily_scorecard,

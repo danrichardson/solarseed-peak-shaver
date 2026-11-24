@@ -343,7 +343,7 @@ class LearnedRuntime:
             self.learner.sample(gauge, max(grid, 0.0), max(load, 0.0), max(pv, 0.0), hours)
             self._day_kwh[now.hour] = self._day_kwh.get(now.hour, 0.0) + max(load, 0.0) * hours
             self._day_cover[now.hour] = self._day_cover.get(now.hour, 0.0) + hours
-            period = c._classify_period(now) if c.is_tou_day(now.date()) else "off-peak"
+            period = c.period_at(now)               # off-peak all day on a non-TOU day
             self._grid_kwh[period] = self._grid_kwh.get(period, 0.0) + max(grid, 0.0) * hours
             self._dirty = True
         elif hours > Learner.MAX_SAMPLE_HOURS or None in (gauge, grid, load) or not pv_ok:
@@ -650,8 +650,9 @@ class LearnedRuntime:
         tomorrow_tou = c.is_tou_day(now.date() + timedelta(days=1))
         # Owed once, from peak end on the last TOU day of the week. The evening before a
         # mid-week holiday is not that (Friday still comes); a Friday holiday makes it Thursday.
-        last_of_week = is_last_tou_day_of_week(now.date(), c.weekdays_only, c.holiday_preset)
-        if last_of_week and now.hour >= c.peak_end and self._topup_day != now.date().isoformat():
+        last_of_week = is_last_tou_day_of_week(now.date(), c.weekdays_only, c.holiday_calendar)
+        peak_end = c.windows_on(now.date()).peak_end
+        if last_of_week and now.hour >= peak_end and self._topup_day != now.date().isoformat():
             self._topup_day = now.date().isoformat()
             self.topup_pending = not self.bank_full
             self._dirty = True
@@ -659,25 +660,27 @@ class LearnedRuntime:
         if not self.topup_pending:
             return
         try:
-            began = datetime.combine(date.fromisoformat(self._topup_day or ""), time(c.peak_end % 24))
+            owed_on = date.fromisoformat(self._topup_day or "")
+            began = datetime.combine(owed_on, time(c.windows_on(owed_on).peak_end % 24))
         except ValueError:
             began = now - timedelta(hours=TOPUP_MAX_HOURS)
         expired = now >= began + timedelta(hours=TOPUP_MAX_HOURS)
-        next_week = (tomorrow_tou and now.hour >= c.peak_end) or (today_tou and now.date() > began.date())
+        next_week = (tomorrow_tou and now.hour >= peak_end) or (today_tou and now.date() > began.date())
         if self.bank_full or expired or next_week:
             self.topup_pending = False
             self._dirty = True
 
     def _inputs(self, now: datetime, gauge: float | None) -> PlanInputs:
         c = self.coord
+        w = c.windows_on(now.date())        # the hours of today's season
         return PlanInputs(
             now=now,
             gauge=gauge,
             is_tou_today=c.is_tou_day(now.date()),
             is_tou_tomorrow=c.is_tou_day(now.date() + timedelta(days=1)),
-            midpeak_start=c.midpeak_start,
-            peak_start=c.peak_start,
-            peak_end=c.peak_end,
+            midpeak_start=w.midpeak_start,
+            peak_start=w.peak_start,
+            peak_end=w.peak_end,
             floor=c.gauge_floor,
             full_months=tuple(c.full_charge_months),
             margin_kwh=c.peak_margin_kwh,
@@ -704,7 +707,8 @@ class LearnedRuntime:
         c, d, s = self.coord, self.decision, self._shadow
         if d is None:
             return
-        if d.phase == "night" and d.target_gauge is not None and now.hour < c.midpeak_start:
+        w = c.windows_on(now.date())
+        if d.phase == "night" and d.target_gauge is not None and now.hour < w.midpeak_start:
             s["night_target_gauge"] = round(d.target_gauge, 1)
             if d.need_kwh is not None:
                 s["night_need_kwh"] = round(d.need_kwh, 2)
@@ -713,27 +717,29 @@ class LearnedRuntime:
         # The handover: the gauge reaching the floor inside the rate window (it bounces up
         # to the recovery level straight after, so only the first touch is recorded).
         if (gauge is not None and "handover_at" not in s and gauge <= c.gauge_floor + 0.5
-                and c.is_tou_day(now.date()) and c.midpeak_start <= now.hour < c.peak_end):
+                and c.is_tou_day(now.date()) and w.midpeak_start <= now.hour < w.peak_end):
             s["handover_at"] = now.strftime("%H:%M")
             s["handover_period"] = c._classify_period(now)
             if d.handover_kwh is not None:
                 s["handover_cost_kwh"] = round(d.handover_kwh, 2)
         if gauge is None or now.minute != 0:
             return
-        if now.hour == c.midpeak_start:
+        if now.hour == w.midpeak_start:
             solar = c._get_hourly_solar(quiet=True)
             s["gauge_midpeak_start"] = round(gauge, 1)
             s["pred_gauge_peak_start"] = round(predict_gauge(
-                self.learner, self.profile, solar, gauge, c.midpeak_start, c.peak_start, c.gauge_floor,
+                self.learner, self.profile, solar, gauge, w.midpeak_start, w.peak_start, c.gauge_floor,
                 c.solar_confidence), 1)
             s["pred_gauge_peak_end"] = round(predict_gauge(
-                self.learner, self.profile, solar, gauge, c.midpeak_start, c.peak_end, c.gauge_floor,
+                self.learner, self.profile, solar, gauge, w.midpeak_start, w.peak_end, c.gauge_floor,
                 c.solar_confidence), 1)
-            s["load_forecast_kwh"] = round(self.profile.window_mean(True, c.midpeak_start, c.peak_end), 2)
+            s["load_forecast_kwh"] = round(self.profile.window_mean(True, w.midpeak_start, w.peak_end), 2)
             s["energy_remaining_kwh"] = round(self.learner.discharge.energy_between(c.gauge_floor, gauge), 2)
-        elif now.hour == c.peak_start:
+            if w.peak_start == w.midpeak_start:     # no mid-peak window: peak starts now too
+                s["gauge_peak_start"] = round(gauge, 1)
+        elif now.hour == w.peak_start:
             s["gauge_peak_start"] = round(gauge, 1)
-        elif now.hour == c.peak_end % 24:
+        elif now.hour == w.peak_end % 24:
             s["gauge_peak_end"] = round(gauge, 1)
 
     def daily_summary(self) -> dict[str, Any]:
@@ -742,8 +748,9 @@ class LearnedRuntime:
         out = dict(self._shadow)
         out["planner"] = c.planner
         out["model_ready"] = bool(self.decision.model_ready) if self.decision else False
+        w = c.windows_on(self._day) if self._day is not None else c.windows_on(c._now().date())
         out["load_actual_kwh"] = round(sum(
-            v for h, v in self._day_kwh.items() if c.midpeak_start <= h < c.peak_end), 2)
+            v for h, v in self._day_kwh.items() if w.midpeak_start <= h < w.peak_end), 2)
         out["grid_kwh"] = {k: round(v, 2) for k, v in self._grid_kwh.items()}
         out.setdefault("stale_minutes", 0)
         out.setdefault("stale_longest_min", 0)
