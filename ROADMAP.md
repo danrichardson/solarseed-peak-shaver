@@ -1,11 +1,12 @@
 # Solarseed Peak Shaver roadmap: one chunk at a time, to 1.0
 
-**Next, paste this** (P2 reviewed go on 2026-11-24; 0.9.0 carries P1 and P2 and should be
-on the box before Wednesday 11-25 evening for Thanksgiving; then the build sentence for P3,
-`work on the next chunk in ROADMAP.md`):
+**Next, paste this** (P3 reviewed go on 2026-11-24 with fixes in 914e341. 0.9.1 changes
+nothing on a PGE box, so it needs no deploy of its own: it can ship with 0.9.2 after P4, or
+alone with `ship 0.9.1` if Dan wants the Tariff form early. 0.9.0 still has to be on the box
+before Wednesday 11-25 evening for Thanksgiving):
 
 ```
-ship 0.9.0
+work on the next chunk in ROADMAP.md
 ```
 
 That sentence and this path are all an agent gets. The other half is [REVIEW.md](REVIEW.md).
@@ -319,7 +320,12 @@ see what the thing does before trusting it with a battery.
 - A screenshot in `docs/` made from invented data, not the owner's.
 
 **Where to start:** `sensor.py` (Learned Plan, Learned Energy Remaining, Health, pack
-sensors and their attributes); `docs/ROADMAP.md` item 6.
+sensors and their attributes); `docs/ROADMAP.md` item 6. Since 0.9.1 the Learned Plan
+sensor carries the tariff (`tariff`, `season`, `day_type`, `price_windows`, `prices`,
+`price_period`, `price_now`) and dollars (`handover_cost_usd`, `shortfall_cost_usd`), and
+each health record carries `cost_usd` with the `prices` it used; take dollars from there,
+never from a constant in a card. Build the dashboard on `chunk-P3` (0.9.1 is reviewed and
+not yet shipped); 0.9.1 and 0.9.2 can go out as one release.
 
 **Defaults:** no custom cards and no custom panel. If one chart cannot be done with stock
 cards, offer an optional second file that uses `apexcharts-card` and say so.
@@ -345,7 +351,14 @@ the reaction goes verbatim into REVIEW.md section 3.
 
 **Where to start:** `config_flow.py` steps `user`, `schedule`, `notifications`;
 `blueprints/automation/solarseed_peak_shaver/`; `README.md` installation section;
-`diagnostics.py` for what is redacted.
+`diagnostics.py` for what is redacted. The first-time `schedule` step still checks only
+`mid > peak` and allows peak end 24: route it through `options.check_tariff` (the Tariff
+section's checks, 0.9.1) or at least the same hour rules, and offer the prices there. Look
+at the Tariff form in a real HA: the optional off-peak price is a number selector with an
+empty suggested value, and the error texts rely on `description_placeholders`; neither has
+been seen in a browser. Say plainly in the form or docs that a two-price plan (no mid-peak)
+holds the battery on grid all day before peak start, which no inverter has been watched
+doing, and that `tools/analyze_performance.py` prices with its own constants.
 
 **Defaults:** solar forecast stays Solcast-shaped (`detailedHourly` / `detailedForecast`);
 say so plainly in the form instead of building a second forecast adapter.
@@ -531,3 +544,26 @@ then the reviewer's `Review:` line.
   the refusal; the Learned Plan sensor's new attributes (`tariff: PGE Time of Day`,
   `price_now`, `handover_cost_usd`); the next daily message shows the same dollars as before;
   the holiday select lists US federal and Custom.
+  Review (2026-11-24, go after small fixes, made): checked eb18a74 and 9cd0a81 against
+  e06ac3b. Read `tariff.py`, `holidays.py` and `test_tariff.py` whole, the diffs of the
+  coordinator, runtime, planner, health, options, config flow, sensor and both string files.
+  590 passed, 1 skipped; 621 with voluptuous; strings.json equals en.json; `const.py` and
+  `manifest.json` agree; the diff is ASCII; shadow replay (learned in control) gives the
+  same 83 events and decisions as 0.9.0, before and after the fixes; PGE prices are the
+  0.9.0 constants and the default entry is the preset object itself. Walked: a Thanksgiving
+  week, a two-price day, a July season day, a stored season that no longer parses, absent
+  and unreadable price keys. Fixed (914e341): after today's peak end the night rule planned
+  tomorrow with today's hours, so the night a season changes sized the charge for the wrong
+  window and timed it to the old mid-peak start (`PlanInputs.next_midpeak_start`,
+  `next_peak_end`; the runtime passes tomorrow's); the Done-when's day types gained the
+  weekend's own hours and prices as a `weekend:` line in the seasons text (a season with
+  no months; needs weekdays-only off, refused otherwise); the Tariff form refuses peak end
+  24, which scheduled the scoring and the peak-end checkpoint at 00:xx on the next date
+  after the counters reset (never graded; so since 0.8). 603 passed, 1 skipped; 634 with
+  voluptuous. Not verified: the HA form (number selector with an empty suggested value for
+  the optional off-peak price, `description_placeholders` in error text); no box token.
+  Noted, not blockers: `tools/analyze_performance.py` keeps its own 0.09/0.18/0.44 (P6
+  honest limits, or take prices from the export); the first-time flow still allows peak end
+  24 and `mid > peak` only (P5 owns it); a two-price plan holds all day before peak start
+  (right by price, never seen on an inverter); the classic planner projects the night with
+  today's hours (legacy). Nothing in 0.9.1 needs to reach the box before P4.

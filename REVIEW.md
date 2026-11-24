@@ -169,3 +169,8 @@ One line per review, newest last.
   skipped in CI since 0.8.1 for a missing package; the chunk that rewrote the options flow
   would have shipped with its form tests never run there. Run the suite with the extra
   package (`analysis/p2_pydeps`) and read the skip count, not just the pass count.
+- 2026-11-24 (P3): read the chunk's "Done when" against the Log's Skipped and Unsure lines
+  one by one. Two honest "unsure" notes (old hours until midnight on a season night; weekend
+  hours cannot be typed) were a boundary bug and a missed criterion, each under an hour to
+  fix. Writing a limitation down does not make it a decision; and any "today's" default
+  that runs after peak end is planning tomorrow, so walk it with tomorrow's hours.
