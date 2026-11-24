@@ -29,7 +29,8 @@ behavior and `docs/analysis-plan.md` for the current overhaul effort.
 | `.../store.py` | Persistent scorecard history (`.storage/solarseed_peak_shaver_history` on HA, 90 days max) + rolling averages + CSV export |
 | `.../__init__.py` | Setup + services `recalculate`, `performance_report`, `export_history` |
 | `.../sensor.py`, `button.py`, `select.py`, `number.py`, `diagnostics.py` | Entities (select and number are settings that write one option) and HA diagnostics download |
-| `.../config_flow.py`, `options.py`, `strings.json`, `translations/en.json` | 3-screen config + options menu; `options.py` says which key is in which section and when a save reloads |
+| `.../config_flow.py`, `options.py`, `strings.json`, `translations/en.json` | 4-screen first-time flow + options menu; `options.py` says which key is in which section and when a save reloads |
+| `.../setup_check.py` | Missing sensors, a forecast without hourly detail, events no automation hears: repair issues, checked every 10 min |
 | `blueprints/automation/solarseed_peak_shaver/` | charge_start / charge_stop / preserve_start blueprints |
 | `tools/analyze_performance.py` | Stdlib-only SPC analysis of `export_history` CSVs |
 | `tools/claude_analysis_prompt.md` | Prompt templates for LLM analysis of exports |
@@ -46,10 +47,9 @@ automations, dashboard, template helpers). It is a snapshot, not the live config
 - **Version bumps** must touch both `const.py` `VERSION` and `manifest.json` `version`.
 - **Config keys are persisted** in users' config entries. Renaming/removing a `CONF_*` key or changing an event name is a breaking change - add migration or keep the old key.
 - **Store schema:** `store.py` `STORAGE_VERSION = 1`. Adding fields to scorecards is fine (readers use `.get`). Changing meaning of an existing field needs a version bump and a migration, or historical analysis silently mixes semantics.
-- **Strings:** any new config field needs entries in both `strings.json` and `translations/en.json`.
+- **Strings:** any new config field needs a label and a description (what to pick; for an optional field, what empty does) in both `strings.json` and `translations/en.json`; `tests/test_first_install.py` checks every form.
 - **Deploy path:** HA installs from GitHub via HACS custom repo `danrichardson/solarseed-peak-shaver`. HACS tracks GitHub **releases** (tags `vX.Y.Z`), so a deploy is: push `main`, create the release, update in HACS, restart HA. A push to `main` alone does not reach the box. Before pushing, run `git log origin/main..main` so you know exactly what will be published. Do not push to main, create a release or touch the live HA box without explicit instruction from Dan. HACS installs and updates must be accepted by Dan in the Home Assistant UI; the API refuses them until he has. The acceptance does not carry over to the temporary agent login (refused again for v0.7.1 on 2026-11-19), so in practice Dan clicks install; the agent verifies afterwards.
 - **Live HA box is production** (it runs the house battery). Read-only by default: pulling logs/storage/history is fine once access is set up; changing config entries, automations, or inverter modes requires explicit approval each time.
-- Delete-worthy junk: `*:Zone.Identifier` files got committed in the pre-migration snapshot (Windows download markers). Safe to `git rm` when convenient.
 
 ## Live system access
 

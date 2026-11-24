@@ -60,6 +60,7 @@ jobs:
           python -m py_compile custom_components/solarseed_peak_shaver/tariff.py
           python -m py_compile custom_components/solarseed_peak_shaver/holidays.py
           python -m py_compile custom_components/solarseed_peak_shaver/outlook.py
+          python -m py_compile custom_components/solarseed_peak_shaver/setup_check.py
           python -m py_compile tools/analyze_performance.py
           echo "All Python files compile OK"
 

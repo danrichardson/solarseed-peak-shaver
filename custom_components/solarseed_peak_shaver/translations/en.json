@@ -2,67 +2,109 @@
   "config": {
     "step": {
       "user": {
-        "title": "Battery & Solar Setup",
-        "description": "Tell the Peak Shaver about your battery system and solar forecast source.",
+        "title": "Battery and solar forecast",
+        "description": "Step 1 of 4. The integration never talks to your inverter: it decides when to charge from the grid, hold or run on battery, and fires an event for each; three automations made from its blueprints change the inverter's mode (see the README). Next: the learned planner's sensors, the tariff, notifications. Everything can be changed later under Configure.",
         "data": {
-          "battery_soc_entity": "Battery SOC sensor (kWh)",
-          "solar_forecast_entity": "Solar forecast sensor",
-          "battery_capacity": "Total battery capacity",
-          "base_load_kw": "Average base load",
-          "min_safe_soc_kwh": "Minimum safe SOC",
-          "solar_actual_entity": "Solar production sensor (optional)"
+          "battery_soc_entity": "Battery energy sensor (kWh)",
+          "solar_forecast_entity": "Solar forecast sensor (today)",
+          "battery_capacity": "Usable battery capacity",
+          "base_load_kw": "Average house load",
+          "min_safe_soc_kwh": "Minimum safe energy (classic planner, legacy)",
+          "solar_actual_entity": "Solar production today"
         },
         "data_description": {
-          "battery_soc_entity": "Sensor reporting available battery energy in kWh",
-          "solar_forecast_entity": "Solcast or Forecast.Solar sensor with hourly forecast data",
-          "battery_capacity": "Total usable capacity of your battery system",
-          "base_load_kw": "Your average hourly power draw during a typical day",
-          "min_safe_soc_kwh": "Battery floor - the level you never want to go below",
-          "solar_actual_entity": "Sensor reporting cumulative solar production today in kWh (enables forecast accuracy tracking)"
+          "battery_soc_entity": "Required. The energy in the battery now, in kWh (a template of percent times capacity works). The classic planner (legacy) reads it; the learned planner uses it only when no gauge sensor is picked on the next screen. A missing reading is never taken as an empty battery: nothing is fired until it is back.",
+          "solar_forecast_entity": "Required. Solcast's forecast for today (the Solcast PV Forecast integration), which carries the hourly detail in a detailedHourly or detailedForecast attribute. Only this Solcast shape is read: a forecast without it (Forecast.Solar, for one) gives the planners no solar, and a repair notice says so.",
+          "battery_capacity": "The energy the battery delivers from full to empty, in kWh. Turns kWh into percent and back.",
+          "base_load_kw": "The house's average draw, in kW. The classic planner's load, and the learned planner's until it has a few days of its own history.",
+          "min_safe_soc_kwh": "Classic planner only: the kWh it plans never to go below. The learned planner uses the gauge floor (Configure, Learned planner) instead. Keep the default if you will use the learned planner.",
+          "solar_actual_entity": "Optional. A sensor counting today's solar production in kWh, rising through the day; the classic planner (legacy) scores and corrects its forecast with it. Empty: no forecast accuracy tracking, nothing else changes."
+        }
+      },
+      "learned": {
+        "title": "Learned planner sensors",
+        "description": "Step 2 of 4. The learned planner measures how your battery charges and runs down and how much the house draws hour by hour, and plans the night charge, the evening hold and any mid-peak top-up from that. Pick the house load and grid power sensors and it starts in control of the inverter. Leave both empty and the classic planner (legacy) is in control; add them later under Configure, Battery and sensors, and switch the Planner select on the device page. Until it has a few days of history it charges to full every night before a TOU day; the backfill_learning service trains it from your recorder history at once.",
+        "data": {
+          "gauge_entity": "Battery gauge (percent)",
+          "load_power_entity": "House load power (inverter output)",
+          "grid_power_entity": "Grid power into the inverter",
+          "pv_power_entity": "Solar power into the inverter",
+          "solar_forecast_tomorrow_entity": "Solar forecast sensor (tomorrow)"
+        },
+        "data_description": {
+          "gauge_entity": "Optional. The battery percent your inverter itself reports, the one its own low-battery setting acts on. Empty: worked out from the battery energy sensor and the capacity.",
+          "load_power_entity": "The power the inverter delivers to the house (its AC output), in W or kW. Pick it together with the grid power sensor. Empty (both): the classic planner (legacy) is in control.",
+          "grid_power_entity": "The power the inverter takes from the grid (its AC input), in W or kW. Pick it together with the house load sensor. Empty (both): the classic planner (legacy) is in control.",
+          "pv_power_entity": "Optional. Solar power into the inverter, in W or kW. Empty: counted as no solar into the inverter, so leave it empty only if your panels do not charge this battery.",
+          "solar_forecast_tomorrow_entity": "Optional. Solcast's forecast for tomorrow, to size the charge the night before. Filled in when today's sensor has a tomorrow twin. Empty: guessed from today's sensor name (today to tomorrow), else today's forecast stands in for tomorrow."
         }
       },
       "schedule": {
-        "title": "Rate Schedule",
-        "description": "Set your TOU rate tiers and when the shaver should run its calculations.",
+        "title": "Tariff",
+        "description": "Step 3 of 4. When electricity costs what. The planners work with three periods on a TOU day: off-peak (cheap), mid-peak (middle) and peak (dear), mid-peak running straight into peak, peak ending by 23:00. Nothing is ever charged from the grid in peak. The defaults are Portland General Electric's Time of Day plan: put in your own. A plan with no mid-peak (two prices) is accepted; the learned planner then holds the battery on grid power from the night charge until peak start, which is right by price but has not yet been watched on an inverter. Seasons, weekend hours, your own holiday rules and one-off dates are under Configure, Tariff afterwards.",
         "data": {
           "midpeak_start_hour": "Mid-peak start",
           "peak_start_hour": "Peak start",
           "peak_end_hour": "Peak end",
-          "weekdays_only": "Weekdays only (typical for TOU plans)",
-          "schedule_hours": "Calculation hours (comma-separated)"
+          "weekdays_only": "Weekdays only",
+          "offpeak_price": "Off-peak price",
+          "midpeak_price": "Mid-peak price",
+          "peak_price": "Peak price",
+          "holiday_preset": "Utility holidays",
+          "schedule_hours": "Calculation hours (classic planner, legacy)"
         },
         "data_description": {
-          "midpeak_start_hour": "When mid-peak rates begin - cheaper than peak, more expensive than off-peak",
-          "peak_start_hour": "When the most expensive rates begin",
-          "peak_end_hour": "When peak rates end and off-peak resumes",
-          "weekdays_only": "Most TOU plans only have peak pricing on weekdays",
-          "schedule_hours": "Hours to run overnight calculations, e.g. 3,4,5,6"
+          "midpeak_start_hour": "The hour mid-peak prices begin on a TOU day (0 to 23). Set it to the peak start hour if your plan has no mid-peak.",
+          "peak_start_hour": "The hour the dearest prices begin.",
+          "peak_end_hour": "The hour peak prices end and off-peak resumes, 23 at the latest (the day is graded ten minutes later).",
+          "weekdays_only": "On: mid-peak and peak apply Monday to Friday, weekends are off-peak all day. Off: every day.",
+          "offpeak_price": "Optional, per kWh. Shown on the Learned Plan sensor. Empty: not shown; the daily cost counts mid-peak and peak only, so nothing else changes.",
+          "midpeak_price": "Per kWh in the mid-peak window; the daily message's dollars use it. The default is PGE's.",
+          "peak_price": "Per kWh in the peak window, not below the mid-peak price. The default is PGE's.",
+          "holiday_preset": "Days your utility prices off-peak all day: they are not planned or graded as TOU days. PGE: its six holidays. US federal: the eleven federal holidays. Both move a Saturday holiday to Friday and a Sunday one to Monday. None: no holidays.",
+          "schedule_hours": "Classic planner only: the hours it recalculates the night charge, comma-separated, for example 3,4,5,6. Empty: it recalculates only when the forecast changes or on the Recalculate button. The learned planner decides every minute and does not use it."
         }
       },
       "notifications": {
-        "title": "Notifications & Off-Peak Hold",
-        "description": "Configure notifications and off-peak battery hold for low-solar months.",
+        "title": "Notifications",
+        "description": "Step 4 of 4. Where the daily report and alerts go, and three settings of the classic planner (legacy), which the learned planner does not use.",
         "data": {
           "notifications_enabled": "Enable notifications",
           "notify_entity": "Notification service",
-          "charge_threshold": "Minimum charge to act on",
-          "seasonal_preservation": "Enable off-peak battery hold",
-          "seasonal_months": "Hold months (comma-separated)",
+          "charge_threshold": "Minimum charge to act on (classic planner, legacy)",
+          "seasonal_preservation": "Off-peak battery hold (classic planner, legacy)",
+          "seasonal_months": "Hold months (classic planner, legacy)",
           "verbose_logging": "Verbose logging"
         },
         "data_description": {
-          "notifications_enabled": "Send notifications when charging decisions are made",
-          "notify_entity": "Notification target, e.g. notify.mobile_app_yourphone",
-          "charge_threshold": "Ignore charge amounts below this level",
-          "seasonal_preservation": "After peak ends in low-solar months, hold battery level and draw from grid instead of draining stored energy",
-          "seasonal_months": "Months when solar won't refill the battery, e.g. 11,12,1,2,3",
-          "verbose_logging": "Show full simulation table in System Logs"
+          "notifications_enabled": "The daily report after peak on TOU days, a review notice when the week needs a look, and alerts (battery data frozen, inverter not following a command). Off: none are sent.",
+          "notify_entity": "Optional. A notify service, for example notify.mobile_app_yourphone. Empty: no notifications, whatever the switch above says.",
+          "charge_threshold": "Classic planner only: a planned charge smaller than this many kWh is not started.",
+          "seasonal_preservation": "Classic planner only: after peak in the hold months, hold the battery and run the house from the grid. The learned planner decides its own holds.",
+          "seasonal_months": "Classic planner only: month numbers, comma-separated, for example 11,12,1,2,3. Empty: no hold months.",
+          "verbose_logging": "On: the classic planner's hour-by-hour simulation goes to the log at warning level. Off: debug level only."
         }
       }
     },
     "error": {
-      "entity_not_found": "Entity not found in Home Assistant",
-      "invalid_time_range": "Rate periods must be in order: mid-peak start, then peak start (the same hour means no mid-peak), then peak end"
+      "entity_not_found": "There is no such entity in Home Assistant.",
+      "invalid_time_range": "Rate periods must be in order: mid-peak start, then peak start (the same hour means no mid-peak), then peak end (by 23:00).",
+      "invalid_prices": "This tariff does not fit: {prices_detail}.",
+      "learned_needs_both": "The learned planner learns from both the house load and the grid power sensor: pick both, or leave both empty."
+    }
+  },
+  "issues": {
+    "missing_sensors": {
+      "title": "Solarseed Peak Shaver: sensors missing",
+      "description": "These sensors are set in the integration but do not exist in Home Assistant, or the learned planner is in control without one it needs:\n\n{sensors}\n\nUntil they are there the planners treat their readings as missing; nothing is charged on a guess. Pick the right sensors under Settings, Devices and services, Solarseed Peak Shaver, Configure, Battery and sensors. This notice clears itself within ten minutes of the fix."
+    },
+    "forecast_without_detail": {
+      "title": "Solarseed Peak Shaver: the solar forecast has no hourly detail",
+      "description": "{entities} has none of the attributes the planners read (detailedHourly or detailedForecast, as the Solcast PV Forecast integration provides them), so the planners see no solar: the classic planner (legacy) does not calculate, and the learned planner plans as if no sun will come. Pick Solcast's forecast sensors, with its detailed forecast attributes turned on in Solcast's own options. Other forecast sources are not supported. This notice clears itself within ten minutes of the fix."
+    },
+    "no_automations": {
+      "title": "Solarseed Peak Shaver: nothing acts on its events",
+      "description": "The planner in control fires these events, and no enabled automation listens to them, so the inverter's mode will not change:\n\n{events}\n\nImport the three blueprints (start grid charging, stop charging, battery hold; the links are in the README), and create one automation from each with your inverter's mode entity and the value for that mode. Automations of your own triggered by these events work as well. This notice clears itself within ten minutes of the fix."
     }
   },
   "entity": {
@@ -170,35 +212,35 @@
       },
       "battery": {
         "title": "Battery and sensors",
-        "description": "The battery, the power sensors the learned planner reads, and the solar forecast. Changing a sensor restarts the integration (as an HA restart would).",
+        "description": "The battery, the power sensors the learned planner reads, and the solar forecast. Changing a sensor restarts the integration (as an HA restart would). A sensor that does not exist shows up as a repair notice within ten minutes.",
         "data": {
-          "battery_soc_entity": "Battery SOC sensor (kWh)",
-          "gauge_entity": "Battery gauge sensor (percent)",
-          "load_power_entity": "House load power sensor (inverter AC output)",
-          "grid_power_entity": "Grid power sensor (inverter AC input)",
-          "pv_power_entity": "Solar power sensor",
+          "battery_soc_entity": "Battery energy sensor (kWh)",
+          "gauge_entity": "Battery gauge (percent)",
+          "load_power_entity": "House load power (inverter output)",
+          "grid_power_entity": "Grid power into the inverter",
+          "pv_power_entity": "Solar power into the inverter",
           "solar_forecast_entity": "Solar forecast sensor (today)",
-          "solar_forecast_tomorrow_entity": "Solar forecast sensor for tomorrow",
-          "solar_actual_entity": "Solar production sensor",
-          "battery_capacity": "Total battery capacity",
-          "base_load_kw": "Average base load"
+          "solar_forecast_tomorrow_entity": "Solar forecast sensor (tomorrow)",
+          "solar_actual_entity": "Solar production today",
+          "battery_capacity": "Usable battery capacity",
+          "base_load_kw": "Average house load"
         },
         "data_description": {
-          "battery_soc_entity": "Available battery energy in kWh. The classic planner reads it; the learned planner uses it only when no gauge sensor is set.",
-          "gauge_entity": "The percent the inverter itself reports. Leave empty to derive it from the battery SOC sensor and the capacity.",
-          "load_power_entity": "Needed for learning. Power the inverter delivers to the house.",
-          "grid_power_entity": "Needed for learning. Power the inverter takes from the grid.",
-          "pv_power_entity": "Optional. Solar power into the inverter.",
-          "solar_forecast_entity": "Solcast-shaped forecast with hourly detail (detailedHourly or detailedForecast).",
-          "solar_forecast_tomorrow_entity": "Optional. Guessed from today's forecast sensor when empty.",
-          "solar_actual_entity": "Sensor reporting cumulative solar production today in kWh (enables forecast accuracy tracking). Optional.",
-          "battery_capacity": "Total usable capacity of your battery system.",
-          "base_load_kw": "Average house draw. The classic planner's starting point, and the learned planner's load until it has history."
+          "battery_soc_entity": "Required. The energy in the battery now, in kWh. The classic planner (legacy) reads it; the learned planner uses it only when no gauge sensor is set.",
+          "gauge_entity": "Optional. The battery percent your inverter itself reports. Empty: worked out from the battery energy sensor and the capacity.",
+          "load_power_entity": "The power the inverter delivers to the house (its AC output). The learned planner learns from it and the grid sensor. Empty: the learned planner cannot learn; while it is in control it charges to full every night before a TOU day, and a repair notice says why.",
+          "grid_power_entity": "The power the inverter takes from the grid (its AC input). The learned planner learns from it and the load sensor. Empty: the learned planner cannot learn; while it is in control it charges to full every night before a TOU day, and a repair notice says why.",
+          "pv_power_entity": "Optional. Solar power into the inverter. Empty: counted as no solar into the inverter, so leave it empty only if your panels do not charge this battery.",
+          "solar_forecast_entity": "Required. Solcast's forecast for today, with its hourly detail (a detailedHourly or detailedForecast attribute). No other forecast shape is read.",
+          "solar_forecast_tomorrow_entity": "Optional. Solcast's forecast for tomorrow. Empty: guessed from today's sensor name (today to tomorrow), else today's forecast stands in for tomorrow.",
+          "solar_actual_entity": "Optional. A sensor counting today's solar production in kWh; the classic planner (legacy) scores and corrects its forecast with it. Empty: no forecast accuracy tracking, nothing else changes.",
+          "battery_capacity": "The energy the battery delivers from full to empty, in kWh.",
+          "base_load_kw": "The house's average draw, in kW. The classic planner's load, and the learned planner's until it has a few days of history."
         }
       },
       "tariff": {
         "title": "Tariff",
-        "description": "When electricity costs what. The planner works with three periods on a TOU day: off-peak (cheap), mid-peak (middle) and peak (dear), mid-peak running straight into peak. A season can change the hours and prices for some months. Holidays are off-peak all day. Changing an hour restarts the integration; prices and holidays take effect within a minute. The defaults are PGE Time of Day.",
+        "description": "When electricity costs what. The planner works with three periods on a TOU day: off-peak (cheap), mid-peak (middle) and peak (dear), mid-peak running straight into peak. A season can change the hours and prices for some months. Holidays are off-peak all day. Changing an hour restarts the integration; prices and holidays take effect within a minute. The defaults are PGE Time of Day. A plan with no mid-peak (two prices) makes the learned planner hold the battery on grid power from the night charge until peak start: right by price, not yet watched on an inverter. The offline tool tools/analyze_performance.py prices with its own fixed rates, not these.",
         "data": {
           "midpeak_start_hour": "Mid-peak start",
           "peak_start_hour": "Peak start",
@@ -217,13 +259,13 @@
           "peak_start_hour": "When the most expensive rates begin.",
           "peak_end_hour": "When peak rates end and off-peak resumes.",
           "weekdays_only": "On: the mid-peak and peak windows apply Monday to Friday only, weekends are off-peak all day. Off: every day, weekends with the weekday hours and prices unless a weekend line in Seasons gives their own.",
-          "offpeak_price": "Optional, per kWh. Shown on the Learned Plan sensor; the daily cost counts mid-peak and peak only.",
+          "offpeak_price": "Optional, per kWh. Shown on the Learned Plan sensor. Empty: not shown; the daily cost counts mid-peak and peak only, so nothing else changes.",
           "midpeak_price": "Per kWh in the mid-peak window. The daily message's dollars use it.",
           "peak_price": "Per kWh in the peak window. It must not be below the mid-peak price: the planner tops up in mid-peak so as not to buy at peak.",
-          "tariff_seasons": "Optional. One season per line: months, a colon, then periods with hours, a price or both, for example: Summer 06-09: mid-peak 7-15, peak 15-20 0.52. Months in no season use the hours and prices above. Hours replace the day's windows (give peak; mid-peak must end where peak starts); a season with prices only keeps the hours above. A line weekend: peak 16-21 0.30 gives weekend days their own hours or prices in every month (Weekdays only must be off).",
+          "tariff_seasons": "Optional. One season per line: months, a colon, then periods with hours, a price or both, for example: Summer 06-09: mid-peak 7-15, peak 15-20 0.52. Months in no season use the hours and prices above. Hours replace the day's windows (give peak; mid-peak must end where peak starts); a season with prices only keeps the hours above. A line weekend: peak 16-21 0.30 gives weekend days their own hours or prices in every month (Weekdays only must be off). Empty: the hours and prices above all year.",
           "holiday_preset": "Days your utility prices off-peak all day: no charge the night before for them, no weekly top-up the evening before a mid-week one, nothing graded or learned as a weekday. Choosing a preset fills the rules below with its own when you save; editing the rules makes it Custom. PGE: New Year's Day, Memorial Day, Independence Day, Labor Day, Thanksgiving and Christmas. US federal: the eleven federal holidays. Both move a Saturday holiday to Friday and a Sunday one to Monday. None: no holidays.",
-          "holiday_rules": "One rule per line, an optional name after it: 01-01 is a date, 11-thu-4 the fourth Thursday of November, 05-mon-last the last Monday of May; sat->fri, sun->mon moves a date that falls on a weekend.",
-          "holiday_dates": "Optional. Single days that are off-peak all day, for example 2026-12-24 Christmas Eve, one per line. Kept whatever the preset."
+          "holiday_rules": "One rule per line, an optional name after it: 01-01 is a date, 11-thu-4 the fourth Thursday of November, 05-mon-last the last Monday of May; sat->fri, sun->mon moves a date that falls on a weekend. Shows the preset's own rules; editing them makes the preset Custom. Empty under Custom: no rule-based holidays.",
+          "holiday_dates": "Optional. Single days that are off-peak all day, for example 2026-12-24 Christmas Eve, one per line. Kept whatever the preset. Empty: none."
         }
       },
       "learned": {
@@ -240,8 +282,8 @@
           "stale_minutes": "Minutes without change that mean the battery data is frozen"
         },
         "data_description": {
-          "planner": "classic: the original planner controls the inverter and the learned planner only reports. learned: the learned planner controls the inverter. Also on the device page as the Planner select.",
-          "full_charge_months": "Comma-separated month numbers, for example 11,12,1.",
+          "planner": "Learned: the learned planner controls the inverter (new installs with the load and grid sensors start here). Classic (legacy): the original planner controls the inverter and the learned planner only reports what it would do; kept for comparison, no new features. Also on the device page as the Planner select.",
+          "full_charge_months": "Months in which every night before a TOU day charges until the inverter stops, whatever the plan: comma-separated month numbers, for example 11,12,1. Empty: none; every night is sized from what was learned.",
           "load_quantile": "0.8 means the plan covers the load of 8 days out of 10. Also on the device page; a change there takes effect within a minute.",
           "solar_confidence": "0.7 means only 70 percent of the forecast is relied on. Also on the device page; a change there takes effect within a minute.",
           "gauge_floor_pct": "Where the inverter's own SOC Low setting hands the house to the grid. The learned planner plans energy above this. Also on the device page; a change there takes effect within a minute.",
@@ -262,7 +304,7 @@
           "capacity_v_low": "Capacity trend: lower bus voltage"
         },
         "data_description": {
-          "pack_current_entities": "Optional. One current sensor per pack the inverter does not manage. Adds a charge estimate (amp-hours from the last full charge) and a capacity trend sensor per pack. Voltage and percent sensors of the same pack are found by name (..._voltage, ..._battery).",
+          "pack_current_entities": "Optional. One current sensor per pack the inverter does not manage. Adds a charge estimate (amp-hours from the last full charge) and a capacity trend sensor per pack. Voltage and percent sensors of the same pack are found by name (..._voltage, ..._battery). Empty: no pack tracking.",
           "pack_current_charge_positive": "Turn off if the pack reports discharge as a positive current.",
           "bus_voltage_entity": "Optional. Empty: the mean of the packs' own voltage sensors.",
           "pack_capacity_ah": "Used to turn amp-hours since full into a percent.",
@@ -279,14 +321,14 @@
           "verbose_logging": "Verbose logging"
         },
         "data_description": {
-          "notifications_enabled": "Daily report, review notice, and alerts (frozen data, inverter not responding).",
-          "notify_entity": "A notify service, for example notify.mobile_app_yourphone. Empty: no notifications.",
-          "verbose_logging": "Write the classic planner's simulation table to the log at warning level."
+          "notifications_enabled": "Daily report, review notice, and alerts (frozen data, inverter not responding). Off: none are sent.",
+          "notify_entity": "Optional. A notify service, for example notify.mobile_app_yourphone. Empty: no notifications.",
+          "verbose_logging": "On: the classic planner's simulation table goes to the log at warning level. Off: debug level only."
         }
       },
       "classic": {
         "title": "Classic planner (legacy)",
-        "description": "Settings only the classic planner uses. It is kept for comparison and as a fallback; new features go into the learned planner.",
+        "description": "Settings only the classic planner uses. It is legacy: kept for comparison and as a fallback, with no new features; the learned planner is the one to use.",
         "data": {
           "min_safe_soc_kwh": "Minimum safe SOC",
           "charge_threshold": "Minimum charge to act on",
@@ -297,9 +339,9 @@
         "data_description": {
           "min_safe_soc_kwh": "The classic planner's floor; it plans never to go below this.",
           "charge_threshold": "The classic planner ignores a charge smaller than this.",
-          "schedule_hours": "Hours the classic planner calculates the night charge, comma-separated, for example 3,4,5,6.",
+          "schedule_hours": "Hours the classic planner calculates the night charge, comma-separated, for example 3,4,5,6. Empty: it recalculates only when the forecast changes or on the Recalculate button.",
           "seasonal_preservation": "Classic planner only: after peak in the hold months, hold the battery and run the house from the grid. The learned planner decides holds itself.",
-          "seasonal_months": "Comma-separated month numbers, for example 11,12,1,2,3."
+          "seasonal_months": "Comma-separated month numbers, for example 11,12,1,2,3. Empty: no hold months."
         }
       }
     },

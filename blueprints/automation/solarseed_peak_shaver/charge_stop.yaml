@@ -1,18 +1,32 @@
 blueprint:
   name: "Solarseed - Stop Charging / Solar Priority"
   description: >
-    Listens for the Solarseed Peak Shaver charge_stop event and switches
-    your inverter back to solar priority mode. This fires both when the
-    battery reaches its target and when the calculation determines no
-    charging is needed.
+    Acts on the Solarseed Peak Shaver event `solarseed_peak_shaver_charge_stop`:
+    puts the inverter back in the mode where the house runs on solar, then
+    battery. The learned planner fires it at mid-peak start (the end of the
+    night hold), when a mid-peak top-up is done, whenever its plan is to run on
+    battery, and once if it is handed back to the classic planner or keeps
+    failing; the classic planner (legacy) when a charge reaches its target or a
+    calculation needs no charge.
+
+
+    Bluetti AC500 example (Bluetti integration): mode entity
+    `select.ac500_ups_mode`, value `PV_PRIORITY` (solar first, then the
+    battery; the inverter's own low-battery setting hands the house to the
+    grid at its floor, which is the learned planner's gauge floor option).
+    Make one automation from each of the three Solarseed blueprints, with the
+    same mode entity.
   domain: automation
-  source_url: https://github.com/danrichardson/solarseed-peak-shaver
+  source_url: https://github.com/danrichardson/solarseed-peak-shaver/blob/main/blueprints/automation/solarseed_peak_shaver/charge_stop.yaml
+  homeassistant:
+    min_version: "2024.8.0"
   input:
     inverter_mode_entity:
       name: Inverter mode entity
       description: >
-        The select or switch entity that controls your inverter's operating mode.
-        Examples: select.ac500_ups_mode, select.eg4_work_mode, switch.inverter_grid_charge
+        The select or switch that sets your inverter's operating mode, for
+        example select.ac500_ups_mode (Bluetti AC500), select.eg4_work_mode,
+        switch.inverter_grid_charge.
       selector:
         entity:
           domain:
@@ -21,9 +35,10 @@ blueprint:
     solar_mode_value:
       name: Solar priority mode value
       description: >
-        The value to set for solar/battery priority. For select entities, this
-        is the option name (e.g. "PV_PRIORITY", "Solar First", "Self Use").
-        For switch entities, use "off".
+        For a select: the option that runs the house on solar and battery,
+        written exactly as the select lists it. AC500: PV_PRIORITY. Others, for
+        example: "Solar First", "Self Use". For a switch the value is not used:
+        the switch is turned off.
       selector:
         text:
 

@@ -1,17 +1,32 @@
 blueprint:
   name: "Solarseed - Off-Peak Battery Hold"
   description: >
-    Listens for the Solarseed Peak Shaver preserve_start event and holds
-    your battery level after peak hours during low-solar months. The inverter
-    draws from the grid for household loads instead of draining stored energy
-    that won't be replenished by tomorrow's sun.
+    Acts on the Solarseed Peak Shaver event `solarseed_peak_shaver_preserve_start`:
+    puts the inverter in a mode that keeps the battery's charge and runs the
+    house from the grid. The learned planner holds on the night before a TOU
+    day, from peak end until mid-peak start (when charge_stop ends it): while
+    it waits for the night charge to begin and after the charge is done,
+    unless there is more on board than the day needs. The classic planner
+    (legacy) fires it after peak in its hold months. The mode you pick must not
+    discharge the battery.
+
+
+    Bluetti AC500 example (Bluetti integration): mode entity
+    `select.ac500_ups_mode`, value `TIME_CONTROL`. On the unit this was built
+    with, that mode passes the grid through to the house and keeps the
+    battery; what it does depends on the time-control windows set in the
+    Bluetti app, so watch your own unit for one evening. Make one automation
+    from each of the three Solarseed blueprints, with the same mode entity.
   domain: automation
-  source_url: https://github.com/danrichardson/solarseed-peak-shaver
+  source_url: https://github.com/danrichardson/solarseed-peak-shaver/blob/main/blueprints/automation/solarseed_peak_shaver/preserve_start.yaml
+  homeassistant:
+    min_version: "2024.8.0"
   input:
     inverter_mode_entity:
       name: Inverter mode entity
       description: >
-        The select or switch entity that controls your inverter's operating mode.
+        The select or switch that sets your inverter's operating mode, for
+        example select.ac500_ups_mode (Bluetti AC500).
       selector:
         entity:
           domain:
@@ -20,9 +35,10 @@ blueprint:
     preserve_mode_value:
       name: Hold mode value
       description: >
-        The value to set for battery hold. This should be a mode where the
-        inverter holds battery charge and draws from the grid instead.
-        Examples: "TIME_CONTROL", "PASSTHROUGH", "Grid First".
+        For a select: the option that keeps the battery and runs the house from
+        the grid, written exactly as the select lists it. AC500: TIME_CONTROL.
+        Others, for example: "PASSTHROUGH", "Grid First". A switch has no hold:
+        it is turned off, which works as stop charging.
       selector:
         text:
 

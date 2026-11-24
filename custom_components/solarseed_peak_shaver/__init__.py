@@ -16,6 +16,7 @@ from .const import (
 )
 from .coordinator import PeakShaverCoordinator
 from .learned_runtime import LearnedRuntime
+from .setup_check import SetupCheck, remove_issues
 from .store import PeakShaverStore
 
 _LOGGER = logging.getLogger(__name__)
@@ -86,6 +87,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Options saved from the menu or the settings entities (0.9.0). There was no listener
     # before: a change to a setting read at start waited for the next restart.
     entry.async_on_unload(entry.add_update_listener(async_options_updated))
+
+    # Missing sensors, a forecast without hourly detail, events nobody acts on: a repair
+    # issue and one log line each, checked every ten minutes once HA runs (0.9.3).
+    try:
+        coordinator.setup_check = SetupCheck(hass, coordinator, entry.entry_id)
+        coordinator.setup_check.start()
+    except Exception:  # noqa: BLE001 - a check must never stop the planners
+        _LOGGER.exception("Setup check could not start")
+        coordinator.setup_check = None
 
     # Register recalculate service (once, for any number of config entries)
     if not hass.services.has_service(DOMAIN, SERVICE_RECALCULATE):
@@ -187,6 +197,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     coordinator: PeakShaverCoordinator = hass.data[DOMAIN][entry.entry_id]
     coordinator.remove_listeners()
+    check = getattr(coordinator, "setup_check", None)
+    if check is not None:
+        check.stop()
     if coordinator.learned is not None:
         try:
             coordinator.learned.remove()
@@ -205,3 +218,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.services.async_remove(DOMAIN, SERVICE_BACKFILL_LEARNING)
 
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """The entry is deleted: its repair issues go with it."""
+    try:
+        remove_issues(hass, entry.entry_id)
+    except Exception:  # noqa: BLE001
+        _LOGGER.exception("Could not remove the setup issues")

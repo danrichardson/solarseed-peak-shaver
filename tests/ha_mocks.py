@@ -25,6 +25,7 @@ _HA_MODULES = [
     "homeassistant.helpers.selector",
     "homeassistant.helpers.entity_platform",
     "homeassistant.helpers.device_registry",
+    "homeassistant.helpers.issue_registry",
     "homeassistant.components",
     "homeassistant.components.button",
     "homeassistant.components.sensor",
@@ -69,6 +70,13 @@ def install_ha_mocks() -> None:
     ha_core.CALLBACK_TYPE = object
     ha_core.SupportsResponse = MagicMock()
     ha_core.SupportsResponse.ONLY = "only"
+    ha_core.CoreState = MagicMock()
+    ha_core.CoreState.starting = "starting"
+    ha_core.CoreState.running = "running"
+    # "from homeassistant.helpers import issue_registry" must find the module above
+    sys.modules["homeassistant.helpers"].issue_registry = sys.modules["homeassistant.helpers.issue_registry"]
+    sys.modules["homeassistant.helpers.issue_registry"].IssueSeverity = MagicMock()
+    sys.modules["homeassistant.helpers.issue_registry"].IssueSeverity.WARNING = "warning"
 
     ha_config_entries = sys.modules["homeassistant.config_entries"]
     ha_config_entries.ConfigEntry = MagicMock
@@ -84,6 +92,7 @@ def install_ha_mocks() -> None:
     ha_helpers_event = sys.modules["homeassistant.helpers.event"]
     ha_helpers_event.async_track_state_change_event = MagicMock()
     ha_helpers_event.async_track_time_change = MagicMock()
+    ha_helpers_event.async_track_time_interval = MagicMock()
 
     ha_helpers_storage = sys.modules["homeassistant.helpers.storage"]
     ha_helpers_storage.Store = MagicMock

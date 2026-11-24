@@ -130,7 +130,7 @@ class PeakShaverConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
             if not errors:
                 self._collected.update(user_input)
-                return await self.async_step_schedule()
+                return await self.async_step_learned()
 
         data_schema = vol.Schema(
             {
@@ -186,80 +186,84 @@ class PeakShaverConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
+    async def async_step_learned(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Step 2 (0.9.3): the learned planner's sensors. With the house load and grid
+        sensors the new entry starts with the learned planner in control; without them the
+        classic planner (legacy) is. Every field is optional and checked to exist."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            picked = {k: str(v).strip() for k, v in user_input.items()
+                      if k in LEARNED_SENSOR_KEYS and str(v or "").strip()}
+            for key, entity_id in picked.items():
+                if self.hass.states.get(entity_id) is None:
+                    errors[key] = "entity_not_found"
+            has_load, has_grid = CONF_LOAD_POWER_ENTITY in picked, CONF_GRID_POWER_ENTITY in picked
+            if has_load != has_grid:
+                errors[CONF_GRID_POWER_ENTITY if has_load else CONF_LOAD_POWER_ENTITY] = "learned_needs_both"
+            if not errors:
+                self._collected.update(picked)
+                self._collected[CONF_PLANNER] = first_planner(picked)
+                return await self.async_step_schedule()
+
+        shown = user_input or {CONF_SOLAR_FORECAST_TOMORROW_ENTITY: self._guess_tomorrow()}
+        data_schema = vol.Schema({
+            vol.Optional(key, description={"suggested_value": shown.get(key) or ""}): _sensor()
+            for key in LEARNED_SENSOR_KEYS
+        })
+        return self.async_show_form(step_id="learned", data_schema=data_schema, errors=errors)
+
+    def _guess_tomorrow(self) -> str:
+        """Tomorrow's forecast sensor, when today's is Solcast-named and the twin exists."""
+        today = str(self._collected.get(CONF_SOLAR_FORECAST_ENTITY) or "")
+        if "today" not in today:
+            return ""
+        guess = today.replace("today", "tomorrow")
+        return guess if self.hass.states.get(guess) is not None else ""
+
     async def async_step_schedule(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Step 2: peak hours and calculation schedule."""
+        """Step 3: the tariff - hours, prices, holidays - checked as the Tariff options
+        section checks them (0.9.3; before, only mid-peak <= peak < end, and peak end 24
+        was allowed, which scored on the next date). Seasons and custom holiday rules are
+        in the options afterwards."""
         errors: dict[str, str] = {}
+        placeholders = {"seasons_detail": "", "prices_detail": "", "rules_detail": "", "dates_detail": ""}
 
         if user_input is not None:
-            mid = user_input[CONF_MIDPEAK_START]
-            peak = user_input[CONF_PEAK_START]
-            end = user_input[CONF_PEAK_END]
-
-            if mid > peak:      # equal: no mid-peak window (0.9.1)
-                errors[CONF_PEAK_START] = "invalid_time_range"
-            if peak >= end:
-                errors[CONF_PEAK_END] = "invalid_time_range"
-
+            preset = normalize_preset(user_input.get(CONF_HOLIDAY_PRESET, DEFAULT_HOLIDAY_PRESET))
+            if preset == HOLIDAY_PRESET_CUSTOM:
+                preset = DEFAULT_HOLIDAY_PRESET
+            user_input = {**user_input, CONF_HOLIDAY_PRESET: preset}
+            _, errors, placeholders = check_tariff(
+                {}, {**user_input, CONF_HOLIDAY_RULES: preset_rules_text(preset) or ""})
             if not errors:
                 self._collected.update(user_input)
                 return await self.async_step_notifications()
 
-        data_schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_MIDPEAK_START,
-                    default=DEFAULT_MIDPEAK_START,
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0, max=23, step=1, unit_of_measurement="hour",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_PEAK_START,
-                    default=DEFAULT_PEAK_START,
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0, max=23, step=1, unit_of_measurement="hour",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_PEAK_END,
-                    default=DEFAULT_PEAK_END,
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=1, max=24, step=1, unit_of_measurement="hour",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_WEEKDAYS_ONLY,
-                    default=DEFAULT_WEEKDAYS_ONLY,
-                ): selector.BooleanSelector(),
-                vol.Required(
-                    CONF_SCHEDULE_HOURS,
-                    default=",".join(str(h) for h in DEFAULT_SCHEDULE_HOURS),
-                ): selector.TextSelector(
-                    selector.TextSelectorConfig(
-                        type=selector.TextSelectorType.TEXT,
-                    )
-                ),
-            }
-        )
-
+        current = user_input or {}
+        fields: dict[Any, Any] = {}
+        for key in FIRST_TARIFF_KEYS:
+            if key == CONF_HOLIDAY_PRESET:
+                presets = [p for p in HOLIDAY_PRESETS if p != HOLIDAY_PRESET_CUSTOM]
+                fields[vol.Required(key, default=normalize_preset(current.get(key, DEFAULT_HOLIDAY_PRESET)))] = (
+                    _choice(presets, CONF_HOLIDAY_PRESET))
+            else:
+                marker, make = _field(key, current)
+                fields[marker] = make
         return self.async_show_form(
             step_id="schedule",
-            data_schema=data_schema,
+            data_schema=vol.Schema(fields),
             errors=errors,
+            description_placeholders=placeholders,
         )
 
     async def async_step_notifications(
         self, user_input: dict[str, Any] | None = None
     ) -> config_entries.ConfigFlowResult:
-        """Step 3: notifications and seasonal settings."""
+        """Step 4: notifications, and the classic planner's (legacy) hold settings."""
         if user_input is not None:
             self._collected.update(user_input)
             return self.async_create_entry(
@@ -472,6 +476,37 @@ _FIELDS: dict[str, tuple[Any, Any]] = {
 
 # Lists the form edits as comma-separated text.
 _CSV_KEYS = (CONF_SCHEDULE_HOURS, CONF_SEASONAL_MONTHS, CONF_FULL_CHARGE_MONTHS)
+
+# The first-time flow (0.9.3). The learned planner's sensors, all optional:
+LEARNED_SENSOR_KEYS: tuple[str, ...] = (
+    CONF_GAUGE_ENTITY,
+    CONF_LOAD_POWER_ENTITY,
+    CONF_GRID_POWER_ENTITY,
+    CONF_PV_POWER_ENTITY,
+    CONF_SOLAR_FORECAST_TOMORROW_ENTITY,
+)
+
+# The first-time Tariff screen; the classic planner's calculation hours stay on it, last.
+FIRST_TARIFF_KEYS: tuple[str, ...] = (
+    CONF_MIDPEAK_START,
+    CONF_PEAK_START,
+    CONF_PEAK_END,
+    CONF_WEEKDAYS_ONLY,
+    CONF_OFFPEAK_PRICE,
+    CONF_MIDPEAK_PRICE,
+    CONF_PEAK_PRICE,
+    CONF_HOLIDAY_PRESET,
+    CONF_SCHEDULE_HOURS,
+)
+
+
+def first_planner(picked: dict[str, Any]) -> str:
+    """The planner a new entry starts with: learned when it has the house load and grid
+    sensors it learns from, else classic. An entry made before 0.9.3 has no planner key
+    and stays classic (the absent-key default); only a new install is written here."""
+    if picked.get(CONF_LOAD_POWER_ENTITY) and picked.get(CONF_GRID_POWER_ENTITY):
+        return PLANNER_LEARNED
+    return PLANNER_CLASSIC
 
 
 def _field(key: str, current: dict[str, Any]) -> tuple[Any, Any]:

@@ -3,6 +3,11 @@
 Reverse-engineered from the code on 2026-11-05. The README describes intent; this
 describes behavior. Line refs are to `custom_components/solarseed_peak_shaver/coordinator.py`.
 
+The sections up to "Learned planner (0.7.0)" describe the **classic planner, legacy from
+0.9.3**: selectable, still computing beside the learned planner, no new features. A new
+install with the house load and grid sensors starts on the learned planner ("0.9.3
+additions").
+
 ## Rate model
 
 Three hard-coded tiers, hour boundaries from config (defaults = PGE Time of Day):
@@ -538,6 +543,80 @@ is logged at debug level and gives an unknown state, never an error in the state
 `inf` as a number; a `nan` gauge then failed every mid-peak tick (`int(nan)` in the top-up
 sizing) and would have reached the failsafe after ten minutes. `_float_state` now returns
 None for a non-finite value, as the coordinator's readers already did.
+
+## 0.9.3 additions
+
+**The first-time flow has four screens.** Battery and solar forecast (as before, with the
+classic planner's minimum marked legacy); **Learned planner sensors** (new: gauge, house
+load, grid, PV, tomorrow's forecast, all optional, each checked to exist, tomorrow's
+suggested when today's Solcast sensor has a `tomorrow` twin); **Tariff** (was "Rate
+Schedule"); Notifications. With both the load and the grid sensor the new entry's data gets
+`planner: learned`; with neither, `planner: classic`; one without the other is refused
+(`learned_needs_both`), since the learned planner samples only when both read. The default
+for an absent `planner` key stays classic, so every entry made before 0.9.3 keeps the
+planner it had; nothing is migrated. Empty sensor fields are not stored (absent reads as
+not set, as before).
+
+The Tariff screen shows the hours, Weekdays only, the three prices (off-peak optional) and
+the holiday preset (None, PGE, US federal; Custom needs rules, so it is in the options
+only), plus the classic planner's calculation hours. It is checked by `options.check_tariff`,
+the Tariff options section's own check: mid-peak start not after peak start, peak start
+before peak end, peak end by 23 (the selector stops at 23; 24 was allowed here until now and
+scheduled the scoring and the peak-end checkpoint at 00:xx on the next date, so the day
+was never graded), prices rising, with the reason in `{prices_detail}`. Only the screen's own
+keys are stored: no holiday rules text (the preset's own rules are used) and no off-peak
+price when left empty. Seasons, weekend hours, custom rules and one-off dates are set in the
+options afterwards.
+
+Every field of every form (the four first-time screens and the six options sections) has
+a label and a description in both string files; an optional field's says what empty does,
+a required sensor's starts "Required." `tests/test_first_install.py` holds both files to
+that from the forms the flow actually builds. The classic planner's fields are labelled
+"(classic planner, legacy)" wherever they appear.
+
+**Setup check** (`setup_check.py`, new). Every ten minutes, and only once Home Assistant's
+state is `running` (automations attach their triggers at start; slow integrations add
+their sensors late), `find_problems` looks for:
+
+- `missing_sensors`: a configured sensor (battery energy, forecast today and tomorrow,
+  gauge, load, grid, PV, solar production) for which `hass.states.get` returns nothing,
+  named with its form label; and, with the learned planner in control, the load or grid
+  sensor not set. A sensor that exists but is `unavailable` or `unknown` is not a setup
+  problem (startup, night): the planners already treat its reading as missing.
+- `forecast_without_detail`: a forecast sensor that has a state but none of the attributes
+  `_get_hourly_solar` reads (`detailedHourly`, `detailedForecast`, `forecasts`,
+  `forecast`). Not judged while it is unavailable.
+- `no_automations`: an event the planner in control fires with no listener on the event
+  bus (`hass.bus.async_listeners()`, which counts each enabled automation's event
+  trigger). The learned planner needs all three; the classic planner needs start and stop,
+  and `preserve_start` only with its off-peak hold on. The integration listens to none of
+  its own events, so a count above zero is someone else's. When the counts cannot be read
+  the check is skipped, not guessed.
+
+Each problem is a Home Assistant repair issue (`issue_registry`, not fixable, warning,
+issue id `<key>_<entry_id>`, text under `issues` in the string files, a link to the README)
+and one WARNING log line `Setup problem (<key>): ...`. Nothing repeats while the problem is
+unchanged; a changed list updates the issue and logs once more; a fixed problem deletes the
+issue and logs one INFO line. The first run after a start also deletes issues no longer
+true from before the restart; removing the entry deletes its issues. It never notifies, never
+acts and never fails the setup (a check that raises is logged once and the planners carry
+on). Diagnostics gain `setup_problems`.
+
+**Blueprints.** `source_url` is each file's own GitHub URL (it was the repository root,
+which Home Assistant's re-import would have fetched as the blueprint), `homeassistant:
+min_version: 2024.8.0` (the `action:` key in their steps), and each description says when
+the learned and classic planners fire its event and names the AC500 value as an example:
+`STANDARD` (charge from grid), `PV_PRIORITY` (solar, then battery) and `TIME_CONTROL`
+(hold: grid carries the house, battery kept; as seen on the unit this was built with, and
+depending on the time-control windows set in the Bluetti app). `tests/test_blueprints.py`
+checks the structure, every `!input`, the event names, the URLs against the README, and
+ASCII. The three tracked `*:Zone.Identifier` download markers are gone.
+
+**Install requirements.** `hacs.json` asks for Home Assistant 2024.11.0 (the options flow
+relies on `OptionsFlow.config_entry` being set by Home Assistant, 2024.11; it said 2024.1.0).
+The README's "What you need" says so, and that the forecast must be Solcast's, that a
+two-price plan holds on grid all day before peak start (never yet watched on an inverter),
+and that `tools/analyze_performance.py` prices with its own fixed rates.
 
 ## State that does not survive an HA restart
 

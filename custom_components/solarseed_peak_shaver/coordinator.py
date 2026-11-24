@@ -155,6 +155,8 @@ class PeakShaverCoordinator(DataUpdateCoordinator[dict[str, float]]):
 
         # Learned model + planner (0.7.0). Created in async_setup_entry; None in old tests.
         self.learned: Any = None
+        # Missing sensors and unheard events as repair issues (0.9.3); set in async_setup_entry.
+        self.setup_check: Any = None
         # setup_signature() when this entry started; a saved change to it reloads (0.9.0)
         self.started_with: dict[str, Any] = {}
 

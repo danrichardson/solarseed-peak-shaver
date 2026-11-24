@@ -1,17 +1,30 @@
 blueprint:
   name: "Solarseed - Start Grid Charging"
   description: >
-    Listens for the Solarseed Peak Shaver charge_start event and switches
-    your inverter to grid charging mode. Configure with your inverter's
-    mode entity and the value that enables grid charging.
+    Acts on the Solarseed Peak Shaver event `solarseed_peak_shaver_charge_start`:
+    puts the inverter in the mode that charges its battery from the grid.
+    The learned planner fires it for the night charge before a TOU day (timed
+    to end at mid-peak start) and for a mid-peak top-up (to end by peak start);
+    the classic planner (legacy) for its overnight charge. It is never fired in
+    the peak window.
+
+
+    Bluetti AC500 example (Bluetti integration): mode entity
+    `select.ac500_ups_mode`, value `STANDARD` (the grid charges the battery and
+    carries the house). Make one automation from each of the three Solarseed
+    blueprints, with the same mode entity. Check what your inverter does in
+    the mode you pick before you leave it a night to run.
   domain: automation
-  source_url: https://github.com/danrichardson/solarseed-peak-shaver
+  source_url: https://github.com/danrichardson/solarseed-peak-shaver/blob/main/blueprints/automation/solarseed_peak_shaver/charge_start.yaml
+  homeassistant:
+    min_version: "2024.8.0"
   input:
     inverter_mode_entity:
       name: Inverter mode entity
       description: >
-        The select or switch entity that controls your inverter's operating mode.
-        Examples: select.ac500_ups_mode, select.eg4_work_mode, switch.inverter_grid_charge
+        The select or switch that sets your inverter's operating mode, for
+        example select.ac500_ups_mode (Bluetti AC500), select.eg4_work_mode,
+        switch.inverter_grid_charge.
       selector:
         entity:
           domain:
@@ -20,9 +33,10 @@ blueprint:
     charge_mode_value:
       name: Grid charging mode value
       description: >
-        The value to set for grid charging. For select entities, this is the
-        option name (e.g. "STANDARD", "Grid First", "Charge"). For switch
-        entities, use "on".
+        For a select: the option that charges the battery from the grid,
+        written exactly as the select lists it. AC500: STANDARD. Others, for
+        example: "Grid First", "Charge". For a switch the value is not used:
+        the switch is turned on.
       selector:
         text:
 

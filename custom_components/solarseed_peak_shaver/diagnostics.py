@@ -52,6 +52,10 @@ async def async_get_config_entry_diagnostics(
             },
         }
 
+        # What the setup check found at its last run (0.9.3): the open repair issues
+        check = getattr(coordinator, "setup_check", None)
+        result["setup_problems"] = dict(check.problems) if check is not None else None
+
         result["charging_active"] = coordinator._charging_active
         result["last_simulation"] = coordinator.last_simulation_summary
 
