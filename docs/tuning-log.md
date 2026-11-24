@@ -119,11 +119,17 @@ and AC output all under 10 W). At the configured 23.5 kWh per 100% that is 0.25 
 **Why it is not a clean baseline.**
 - One night and one day. The gauge moves in whole percent, and 23.5 kWh per 100% is the
   configured capacity, not a measured one, so allow roughly 15% either way.
-- The owner notes that a load of about 150 W elsewhere in the house was on all day. The AC
-  output sensor never showed anything like it, so that load was not fed by the inverter and
-  does not explain the drain. What does is open: the system's own overhead, or the capacity
-  figure. The pack current in the `bluetti` bucket would settle it, as would a second run
-  with the wiring confirmed.
+- A resistive load of about 150 W (the owner's estimate, to be corrected) ran all day on
+  the main panel, not on the AC500, which the AC output sensor agrees with. It does not
+  explain the drain. What does is open: the system's own overhead, or the capacity figure.
+  The pack current in the `bluetti` bucket would settle it, as would a second run with the
+  load confirmed.
+
+**Whole-house baseline (to do).** The same days also give an idle baseline for the whole
+house on the Emporia Vue mains sensor (see `docs/analysis-plan.md`), after taking out the
+150 W load above (24 h of it is 3.6 kWh a day; use the owner's corrected figure when there
+is one). It needs the mains sensor's history for the same window, which has not been
+pulled: the local hourly statistics end on 11-19. Add the figure here once it is.
 
 **Data note.** The load profile for 2026-11-22 and 2026-11-23 is idle-day data. Both days
 went into the learned 14-day history (about 7% off the weekday mean until they age out,
