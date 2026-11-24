@@ -1,12 +1,11 @@
 # Solarseed Peak Shaver roadmap: one chunk at a time, to 1.0
 
-**Next, paste this** (P3 reviewed go on 2026-11-24 with fixes in 914e341. 0.9.1 changes
-nothing on a PGE box, so it needs no deploy of its own: it can ship with 0.9.2 after P4, or
-alone with `ship 0.9.1` if Dan wants the Tariff form early. 0.9.0 still has to be on the box
-before Wednesday 11-25 evening for Thanksgiving):
+**Next, paste this** (P4 built on 2026-11-24 in f443a46, on P3; it needs a fresh review
+before 0.9.1 and 0.9.2 ship together. 0.9.0 still has to be on the box before Wednesday
+11-25 evening for Thanksgiving):
 
 ```
-work on the next chunk in ROADMAP.md
+review the last chunk per REVIEW.md
 ```
 
 That sentence and this path are all an agent gets. The other half is [REVIEW.md](REVIEW.md).
@@ -81,7 +80,7 @@ each.
 | P1 | Thanksgiving: holidays, and the false alarm at full | 0.8.2 | care | yes | Built 2026-11-23, `chunk-P1` 745c6b2 |
 | P2 | Settings you can find | 0.9.0 | plumbing, care | yes | Built 2026-11-24, `chunk-P2` 95761f0 |
 | P3 | Tariff as data | 0.9.1 | care | yes | Built 2026-11-24, `chunk-P3` eb18a74 |
-| P4 | The dashboard | 0.9.2 | taste | yes | |
+| P4 | The dashboard | 0.9.2 | taste | yes | Built 2026-11-24, `chunk-P4` f443a46 |
 | P5 | A stranger can install it | 0.9.3 | care, taste | yes | |
 | P6 | Ready to be seen | 1.0.0 | taste, Dan's word first | yes | |
 | P7 | Refill | | | | |
@@ -567,3 +566,65 @@ then the reviewer's `Review:` line.
   24 and `mid > peak` only (P5 owns it); a two-price plan holds all day before peak start
   (right by price, never seen on an inverter); the classic planner projects the night with
   today's hours (legacy). Nothing in 0.9.1 needs to reach the box before P4.
+- 2026-11-24, P4 build. Plan: `dashboards/solarseed.yaml`, one sections view of stock cards,
+  the entity ids once at the top as YAML anchors, answering in the chunk's order: now and
+  why; the next peak; the last seven graded days in grades and dollars (from the health
+  records); predicted against what happened; pack capacity when packs exist. Two sensors it
+  needs: Plan Summary (the plan as one sentence) and Peak End Forecast (the gauge expected
+  at the next planned peak end, with history), both read-only views of the learned
+  planner's last decision in a pure `outlook.py`. Tests for the sensors and the file, the
+  templates rendered against the real sensors' attributes. A picture in `docs/` from
+  invented data. 0.9.2. Leave out: custom cards (no chart needed one, so no apexcharts
+  file), the run-down voltage curve and energy per gauge band from item 6, the first-time
+  flow (P5). Seen working by the template renders, the picture and the shadow replay.
+  Pulse: tests green (603 passed, 1 skipped; 634 with voluptuous); no token on this machine
+  (no `analysis/.ha_token.json`), box not checked.
+  Built: as planned, on `chunk-P4` (f443a46), on P3 with its review (930954d). 653 passed,
+  7 skipped (the six template renders need jinja2, plus the config-flow file); on the
+  flow-enabled path (`analysis/p2_pydeps`, now with jinja2) 690 passed, none skipped. CI
+  installs jinja2 and parses the dashboard. The file: heading, markdown, tile, gauge,
+  history-graph, statistics-graph, conditional and vertical-stack; HA 2024.10 or later
+  (heading card, sections view). The markdown cards carry the id block and read it as
+  `config.ids` (the markdown card's documented `config` template variable); HA expands the
+  anchors on save, so the ids are edited in the file before pasting. Two ids are the user's:
+  the battery gauge (an AC500's by default) and the packs' "Ah Between" sensors (a
+  placeholder "Pack 1"; the pack section hides while that entity does not exist). Dollars
+  come only from `cost_usd`, `shortfall_cost_usd` and `handover_cost_usd`. The forecast is
+  the health record's own prediction (`predict_gauge`, mean load), so at mid-peak start it
+  equals `pred_gauge_peak_end` (a test), started from the night target before mid-peak, the
+  top-up target during a top-up, else the gauge now; unknown with no gauge, an untrained
+  model, or no peak planned, `why_none` says which. The sentence covers night, mid-peak
+  (covered, short with the dollar figure, topping up), peak, the night before, Friday,
+  weekend, holiday by name, weekly top-up, no gauge, untrained, and "Shadow plan" under
+  classic; ASCII, clipped at 255. Found by the new tests and fixed: the learned runtime
+  read a `nan` or `inf` state as a number, and a `nan` gauge raised in the mid-peak top-up
+  sizing (`int(nan)`) on every tick, toward the failsafe; `_float_state` now treats a
+  non-finite value as missing, as the coordinator already did (not seen on the box; a test
+  feeds nan, inf, -inf, empty, unknown). Shadow replay, learned in control, P3 baseline
+  against P4: stdout identical (45 lines, 83 events, same decisions and summary; diffed by
+  `analysis/scripts/p4_replay_compare.py`). Picture: `docs/dashboard.png`, 1440x1200,
+  invented February week (a trained-looking model from the test helpers, seven invented
+  graded days, invented gauge and pack histories), drawn with Pillow by
+  `analysis/scripts/p4_draw_dashboard.py`: the card order, options and markdown templates are
+  the file's own, rendered with Jinja against the real sensor classes; the look of the
+  stock cards is imitated, and a note on the image says it is not a Home Assistant
+  screenshot. Headless Edge (the first choice, via `p4_render_dashboard.py`'s HTML page)
+  could not be launched in this session's permissions, and no HA runs on this machine.
+  Skipped: an apexcharts file (not needed); item 6's voltage curve and energy per band
+  (noted in `docs/ROADMAP.md` item 6); a translation of the mode state on the tile (it shows
+  `discharge`, `hold`, `charge` raw; the Now card's reason says it in words).
+  Unsure: the dashboard has never been pasted into a real Home Assistant: the `config`
+  variable in markdown templates, `strptime`/`selectattr` in HA's sandbox, the conditional
+  card hiding a gauge on `unknown` and a missing pack entity, and the heading card are from
+  memory of the HA docs and frontend, checked here only with plain Jinja; a top-level
+  `solarseed_ids` key in a dashboard is believed harmless (the raw editor keeps unknown
+  keys). The forecast uses mean load and the plan the load quantile plus margin, so "covered,
+  2 % above the floor" can sit beside "looks short, a top-up starts before 17:00"; the
+  Next-peak card says so in small print. Plan Summary is a text sensor that changes with
+  the numbers in it (a recorder row every few minutes, as the Learned Plan already does).
+  Look at: paste the file into a new dashboard on the box (edit nothing if the gauge is the
+  AC500's; the pack section stays hidden unless a pack is named "Pack 1"); the first card
+  first: does the sentence say what the inverter is doing; the Next-peak gauge on a weekday
+  evening and its absence on Saturday; the 7-day table against the daily messages; the
+  history graph after a few days; that no card shows "Entity not available" or a template
+  error. Taste: Dan's reaction verbatim into REVIEW.md section 3.
