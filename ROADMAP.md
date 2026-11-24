@@ -79,7 +79,7 @@ each.
 |---|---|---|---|---|---|
 | P1 | Thanksgiving: holidays, and the false alarm at full | 0.8.2 | care | yes | Built 2026-11-23, `chunk-P1` 745c6b2 |
 | P2 | Settings you can find | 0.9.0 | plumbing, care | yes | Built 2026-11-24, `chunk-P2` 95761f0 |
-| P3 | Tariff as data | 0.9.1 | care | yes | |
+| P3 | Tariff as data | 0.9.1 | care | yes | Built 2026-11-24, `chunk-P3` eb18a74 |
 | P4 | The dashboard | 0.9.2 | taste | yes | |
 | P5 | A stranger can install it | 0.9.3 | care, taste | yes | |
 | P6 | Ready to be seen | 1.0.0 | taste, Dan's word first | yes | |
@@ -477,3 +477,57 @@ then the reviewer's `Review:` line.
   strings; no box token. Noted, not blockers: the Battery section does not check that a
   typed sensor exists (setup does); a late frozen stretch is capped at the minutes since the
   scoring, so a stretch spanning 21:10 is under-reported, never over.
+- 2026-11-24, P3 build. Plan: a pure `tariff.py`: three named periods (off-peak, mid-peak,
+  peak) with prices; weekday windows from the three legacy hour keys (kept); the weekend from
+  `weekdays_only`; holidays off-peak all day; optional seasons that change hours and prices by
+  month; the holiday calendar. PGE Time of Day is the preset and the default, so an entry with
+  only the three hour keys reads the same. Holiday rules typed as text in `holidays.py`
+  (`01-01`, `11-thu-4`, `05-mon-last`, `sat->fri, sun->mon`) plus one-off dates; presets none,
+  PGE, US federal and custom, a preset filling the rules field on save. The Schedule section
+  becomes Tariff (hours, weekdays, prices, seasons, holidays); a tariff that does not fit the
+  planner's cheap/middle/dear shape is refused with a plain message. Dollars in the health
+  record, the daily message and the plan sensor from the tariff of that date. Timers for every
+  season's hours, acting only on the day's own. 0.9.1. Leave out: weekend hours unlike the
+  weekday's (refused), more than three periods, a currency other than dollars, the first-time
+  flow (P5). Seen working by: every hour of two sample weeks against a frozen copy of the
+  0.9.0 rules, form tests with voluptuous, a summer season through the runtime, the shadow
+  replay before and after. Pulse: tests green (530 + 1 skipped; 556 with voluptuous); no
+  token on this machine, box not checked.
+  Built: as planned, on `chunk-P3` (eb18a74), on P2 with its review (e06ac3b). 590 passed,
+  1 skipped; with voluptuous on the path 621 passed, none skipped. The coordinator builds the
+  tariff from the options (cached); `windows_on(date)` and `period_at(when)` replace the three
+  fixed hours wherever a date is known (the learned runtime's planner inputs, grid booking,
+  handover record, gauge checkpoints, weekly top-up); the classic planner and the sensors use
+  today's. Exactness: every hour of three sample weeks (Thanksgiving 2026, 2027-07-05 and
+  2027-12-31 observed) matches a frozen copy of the 0.9.0 rules in period and price, from the
+  preset, absent keys, a 0.8 flat-form entry and an entry with only the three hour keys; the
+  health cost and daily message are identical. Shadow replay with learned in control, before
+  and after: identical (83 events, the same decisions and summary). The Schedule section is
+  now Tariff (eleven fields). Refused with the reason: two peak or mid-peak windows, a gap or
+  mid-peak after peak, a window across midnight, off-peak hours, a month in two seasons,
+  prices not rising (the mid-peak price ignored when there is no mid-peak window), bad rules
+  or dates. Mid-peak start equal to peak start is accepted as a two-price plan (refused
+  before, here and in the first-time flow). Holiday presets none, pge, us_federal (11) and
+  custom; the rules field shows the rules in force, a chosen preset fills it on save, edited
+  rules make it custom; the device-page select lists all four. A season's hours reload the
+  entry; its months, prices and the holidays do not. Health record gains `prices`; Learned
+  Plan gains `tariff`, `season`, `day_type`, `price_windows`, `prices`, `price_period`,
+  `price_now`, `handover_cost_usd`, `shortfall_cost_usd`. No key renamed, no storage change.
+  Skipped: weekend hours unlike the weekday's (cannot be typed); a currency other than
+  dollars; a tariff-preset selector (PGE Time of Day is the default and only preset, named on
+  the sensor); `tools/analyze_performance.py` keeps its own approximate rates (an offline tool
+  on classic CSVs that cannot import the integration package); the planner's reason text
+  stays in kWh (the dollars are attributes).
+  Unsure: the night after peak end is planned with today's hours, so on the one night a
+  season starts the first plan uses the old mid-peak start until midnight; with no mid-peak
+  window the whole day before peak start is "the night before" for the learned planner
+  (charge timed to end at peak start, then hold), right by price but never seen on a box
+  (does the inverter's hold still take PV?); that the HA frontend fills an error's detail
+  from `description_placeholders` (believed, not seen); after the first save of the Tariff
+  section the preset's rules are stored as text too (harmless: a preset's own rules are used
+  unless custom); peak end 24 still schedules at 00:xx, as before.
+  Look at: Configure, Tariff (eleven fields, the PGE rules in Holiday rules, prices 0.1670 and
+  0.4313); save it unchanged and nothing changes; type a season with two peak windows to see
+  the refusal; the Learned Plan sensor's new attributes (`tariff: PGE Time of Day`,
+  `price_now`, `handover_cost_usd`); the next daily message shows the same dollars as before;
+  the holiday select lists US federal and Custom.
